@@ -271,12 +271,13 @@ function Library.new(config)
 	-- Search registry -------------------------------------------
 	local searchable = {}
 	local sectionFrames = {}
+	local holderSection = {}   -- holder-Instance -> section-Frame (keine Custom-Felder auf Instances!)
 	local function registerSearchable(row, name, parent)
 		if not name or name == "" then return end
 		searchable[#searchable + 1] = {
 			name = string.lower(name),
 			row = row,
-			section = parent and parent._searchSection,
+			section = parent and holderSection[parent],
 		}
 	end
 
@@ -1060,7 +1061,7 @@ function Library.new(config)
 			Parent = holder,
 		})
 		pad(holder, 8)
-		holder._searchSection = frame
+		holderSection[holder] = frame
 		sectionFrames[#sectionFrames + 1] = frame
 
 		track(headerBtn.MouseButton1Click:Connect(function()

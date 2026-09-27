@@ -258,6 +258,22 @@ function Library.new(config)
 		themeRerenders[#themeRerenders + 1] = fn
 		return fn
 	end
+	local function glassGradient(parent, key, c1, c2)
+		local g = vgradient(
+			parent,
+			Library.Theme[key] - 0.03,
+			Library.Theme[key] + 0.08,
+			c1 or Color3.fromRGB(255, 255, 255),
+			c2 or Color3.fromRGB(210, 216, 235)
+		)
+		onTheme(function()
+			g.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, math.clamp(Library.Theme[key] - 0.03, 0, 1)),
+				NumberSequenceKeypoint.new(1, math.clamp(Library.Theme[key] + 0.08, 0, 1)),
+			})
+		end)
+		return g
+	end
 	local function applyTheme()
 		for _, b in ipairs(themeBinds) do
 			pcall(function() b.inst[b.prop] = Library.Theme[b.key] end)
@@ -467,6 +483,8 @@ function Library.new(config)
 		Parent = root,
 	})
 	corner(shadow, Library.Theme.RadiusLg)
+	w._shadow = shadow
+	w._shadowSoft = shadowSoft
 
 	-- Main acrylic window --------------------------------------
 	w.Main = create("Frame", {
@@ -483,13 +501,7 @@ function Library.new(config)
 	corner(w.Main, Library.Theme.RadiusLg)
 	reg(w.Main, "BackgroundColor3", "Bg0")
 	stroke(w.Main, Library.Theme.Stroke, 1, 0.2)
-	vgradient(
-		w.Main,
-		Library.Theme.WindowOpacity - 0.03,
-		Library.Theme.WindowOpacity + 0.10,
-		Color3.fromRGB(255, 255, 255),
-		Color3.fromRGB(205, 212, 235)
-	)
+	glassGradient(w.Main, "WindowOpacity", Color3.fromRGB(255, 255, 255), Color3.fromRGB(205, 212, 235))
 	topHighlight(w.Main, 0.88)
 
 	-- pop-in scale for the open animation
@@ -515,13 +527,7 @@ function Library.new(config)
 		Parent = w.Main,
 	})
 	reg(bar, "BackgroundColor3", "Bg1")
-	vgradient(
-		bar,
-		Library.Theme.WindowOpacity - 0.03,
-		Library.Theme.WindowOpacity + 0.08,
-		Color3.fromRGB(255, 255, 255),
-		Color3.fromRGB(214, 220, 238)
-	)
+	glassGradient(bar, "WindowOpacity", Color3.fromRGB(255, 255, 255), Color3.fromRGB(214, 220, 238))
 
 	-- app mark
 	local mark = create("Frame", {
@@ -634,6 +640,9 @@ function Library.new(config)
 		Parent = body,
 	})
 	reg(w.Sidebar, "BackgroundColor3", "Bg1")
+	onTheme(function()
+		w.Sidebar.BackgroundTransparency = Library.Theme.PanelOpacity
+	end)
 	-- kein UIListLayout: Tabs werden manuell gestapelt (deterministisch, kein Verrutschen)
 	pad(w.Sidebar, 8)
 	-- right border line — parented to body (NOT the sidebar, sonst frisst
@@ -1006,13 +1015,7 @@ function Library.new(config)
 		corner(frame, Library.Theme.Radius)
 		reg(frame, "BackgroundColor3", "Bg2")
 		stroke(frame, Library.Theme.Stroke, 1, 0.35)
-		vgradient(
-			frame,
-			Library.Theme.PanelOpacity - 0.04,
-			Library.Theme.PanelOpacity + 0.06,
-			Color3.fromRGB(255, 255, 255),
-			Color3.fromRGB(190, 196, 220)
-		)
+		glassGradient(frame, "PanelOpacity", Color3.fromRGB(255, 255, 255), Color3.fromRGB(190, 196, 220))
 
 		local collapsed = false
 		local headerBtn = create("TextButton", {
@@ -2394,13 +2397,7 @@ function Library.new(config)
 		})
 		corner(card, Library.Theme.Radius)
 		stroke(card, Library.Theme.Stroke, 1, 0.3)
-		vgradient(
-			card,
-			Library.Theme.PanelOpacity - 0.02,
-			Library.Theme.PanelOpacity + 0.06,
-			Color3.fromRGB(255, 255, 255),
-			Color3.fromRGB(200, 206, 230)
-		)
+		glassGradient(card, "PanelOpacity", Color3.fromRGB(255, 255, 255), Color3.fromRGB(200, 206, 230))
 		pad(card, PADDING)
 
 		local click = create("TextButton", {
@@ -2697,6 +2694,67 @@ function Library.new(config)
 		return { Dropdown = dd, NameBox = nameBox, Refresh = refresh }
 	end
 
+	-- Settings tab ---------------------------------------------
+	function w:SettingsTab(cfg)
+		cfg = cfg or {}
+		local tab = w:Tab(cfg.Name or "Settings")
+
+		local themeSec = tab:Section("Theme")
+		local presets = {
+			{ "Lunar",  { Primary = Color3.fromRGB(96, 140, 255),  PrimaryDim = Color3.fromRGB(58, 90, 188) } },
+			{ "Mint",   { Primary = Color3.fromRGB(78, 200, 140),  PrimaryDim = Color3.fromRGB(46, 140, 96) } },
+			{ "Violet", { Primary = Color3.fromRGB(168, 110, 255), PrimaryDim = Color3.fromRGB(112, 70, 190) } },
+			{ "Amber",  { Primary = Color3.fromRGB(240, 170, 70),  PrimaryDim = Color3.fromRGB(184, 120, 40) } },
+			{ "Rose",   { Primary = Color3.fromRGB(240, 100, 150), PrimaryDim = Color3.fromRGB(184, 64, 104) } },
+		}
+		for _, p in ipairs(presets) do
+			themeSec:Button({
+				Name = "Accent: " .. p[1],
+				Callback = function() Library:SetTheme(p[2]) end,
+			})
+		end
+		themeSec:ColorPicker({
+			Name = "Custom Accent",
+			Default = Library.Theme.Primary,
+			Callback = function(c)
+				Library:SetTheme({ Primary = c, PrimaryDim = c:Lerp(Color3.new(0, 0, 0), 0.35) })
+			end,
+		})
+
+		local uiSec = tab:Section("Interface")
+		uiSec:Slider({
+			Name = "UI Scale",
+			Min = 0.7, Max = 1.4, Decimals = 2,
+			Default = w.Scale.Scale,
+			Callback = function(v) w:SetScale(v) end,
+		})
+		uiSec:Slider({
+			Name = "Acrylic",
+			Min = 0, Max = 0.4, Decimals = 2,
+			Default = Library.Theme.WindowOpacity,
+			Callback = function(v) w:SetAcrylic(v) end,
+		})
+
+		local behSec = tab:Section("Behavior")
+		behSec:Keybind({
+			Name = "Toggle UI",
+			Default = cfg.ToggleKey or "RightControl",
+			Mode = "Toggle",
+			Callback = function(on) w:SetVisible(not on) end,
+		})
+		behSec:Toggle({
+			Name = "Watermark",
+			Default = (w._watermark ~= nil),
+			Callback = function(v) w:SetWatermarkVisible(v) end,
+		})
+		behSec:Button({
+			Name = "Reset Position",
+			Callback = function() w:ResetPosition() end,
+		})
+
+		return tab
+	end
+
 	-- Modal -----------------------------------------------------
 	function w:Modal(cfg)
 		cfg = cfg or {}
@@ -2800,6 +2858,9 @@ function Library.new(config)
 	-- Watermark -------------------------------------------------
 	function w:Watermark(cfg)
 		cfg = cfg or {}
+		if w._watermark and w._watermark.Frame and w._watermark.Frame.Parent then
+			return w._watermark
+		end
 		local frame = create("Frame", {
 			Name = "Watermark",
 			Size = UDim2.fromOffset(0, 26),
@@ -2847,16 +2908,47 @@ function Library.new(config)
 			end
 		end))
 
-		local api = {}
+		local api = { Frame = frame }
 		function api:SetText(t) label.Text = t end
-		function api:Destroy() frame:Destroy() end
+		function api:SetVisible(v) frame.Visible = v ~= false end
+		function api:Destroy()
+			frame:Destroy()
+			if w._watermark == api then w._watermark = nil end
+		end
+		w._watermark = api
 		return api
 	end
 
-	-- Scale / Unload --------------------------------------------
+	-- Scale / Visibility / Unload -------------------------------
 	function w:SetScale(value)
 		w.Scale.Scale = math.clamp(value or 1, 0.6, 1.6)
 		task.defer(function() w:ClampToScreen() end)
+	end
+
+	function w:SetAcrylic(level)
+		level = math.clamp(tonumber(level) or Library.Theme.WindowOpacity, 0, 0.5)
+		Library.Theme.WindowOpacity = level
+		Library.Theme.PanelOpacity = math.min(level + 0.08, 0.55)
+		if w._applyTheme then w._applyTheme() end
+	end
+
+	function w:SetVisible(v)
+		v = v ~= false
+		if w.Main then w.Main.Visible = v end
+		if w._shadow then w._shadow.Visible = v end
+		if w._shadowSoft then w._shadowSoft.Visible = v end
+	end
+
+	function w:ResetPosition()
+		if w.Main then w.Main.Position = UDim2.fromScale(0.5, 0.5) end
+		task.defer(function() w:ClampToScreen() end)
+	end
+
+	function w:SetWatermarkVisible(v)
+		if not w._watermark then
+			w:Watermark({ Text = "LunarUI" })
+		end
+		if w._watermark then w._watermark:SetVisible(v) end
 	end
 
 	function w:Unload()

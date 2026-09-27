@@ -384,15 +384,16 @@ function Library.new(config)
 		Parent = w.Sidebar,
 	})
 	pad(w.Sidebar, 8)
-	-- right border line
+	-- right border line — parented to body (NOT the sidebar, sonst frisst
+	-- das UIListLayout die Linie als Vollhöhen-Element und schiebt alle Tabs raus)
 	create("Frame", {
 		Name = "Edge",
 		Size = UDim2.new(0, 1, 1, 0),
-		Position = UDim2.fromScale(1, 0),
+		Position = UDim2.fromOffset(139, 0),
 		BackgroundColor3 = Library.Theme.Stroke,
 		BackgroundTransparency = 0.4,
 		BorderSizePixel = 0,
-		Parent = w.Sidebar,
+		Parent = body,
 	})
 
 	w.Content = create("Frame", {

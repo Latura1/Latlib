@@ -16,6 +16,7 @@ local RunService       = game:GetService("RunService")
 local Players          = game:GetService("Players")
 local HttpService      = game:GetService("HttpService")
 local TextService      = game:GetService("TextService")
+local GuiService       = game:GetService("GuiService")
 
 local Library = {}
 
@@ -165,6 +166,21 @@ local function springGoal(inst, time, goal)
 end
 
 ------------------------------------------------------------
+-- Mouse in GUI space
+--   GetMouseLocation() liefert Koordinaten ohne GuiInset,
+--   AbsolutePosition liegt um den Inset versetzt → hier korrigieren.
+------------------------------------------------------------
+local function guiInset()
+	return GuiService:GetGuiInset()
+end
+
+local function guiMouse()
+	local m = UserInputService:GetMouseLocation()
+	local inset = guiInset()
+	return Vector2.new(m.X - inset.X, m.Y - inset.Y)
+end
+
+------------------------------------------------------------
 -- Central Drag Manager
 --   one RenderStepped + one InputEnded for the whole library
 ------------------------------------------------------------
@@ -251,6 +267,159 @@ function Library.new(config)
 		end
 	end
 	w._applyTheme = applyTheme
+
+	-- Search registry -------------------------------------------
+	local searchable = {}
+	local sectionFrames = {}
+	local function registerSearchable(row, name, parent)
+		if not name or name == "" then return end
+		searchable[#searchable + 1] = {
+			name = string.lower(name),
+			row = row,
+			section = parent and parent._searchSection,
+		}
+	end
+
+	function w:ApplySearch(query)
+		query = string.lower(query or "")
+		local sectionHas = {}
+		for _, e in ipairs(searchable) do
+			local match = query == "" or string.find(e.name, query, 1, true) ~= nil
+			e.row.Visible = match
+			if match and e.section then sectionHas[e.section] = true end
+		end
+		for _, sf in ipairs(sectionFrames) do
+			sf.Visible = (query == "") or (sectionHas[sf] == true)
+		end
+	end
+
+	-- Tooltip ---------------------------------------------------
+	local tooltip
+	local function ensureTooltip()
+		if tooltip and tooltip.Parent then return end
+		tooltip = create("TextLabel", {
+			Name = "Tooltip",
+			Size = UDim2.fromOffset(0, 22),
+			AutomaticSize = Enum.AutomaticSize.X,
+			BackgroundColor3 = Library.Theme.Bg2,
+			BorderSizePixel = 0,
+			Text = "",
+			Font = Library.Theme.Font,
+			TextSize = 12,
+			TextColor3 = Library.Theme.Text,
+			Visible = false,
+			ZIndex = 500,
+			Parent = w.Gui,
+		})
+		corner(tooltip, UDim.new(0, 5))
+		stroke(tooltip, Library.Theme.Stroke, 1, 0.3)
+		create("UIPadding", {
+			PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8),
+			Parent = tooltip,
+		})
+	end
+
+	function w:_Tooltip(trigger, text)
+		if not text or text == "" then return end
+		ensureTooltip()
+		track(trigger.MouseEnter:Connect(function()
+			tooltip.Text = text
+			tooltip.Visible = true
+		end))
+		track(trigger.MouseLeave:Connect(function()
+			tooltip.Visible = false
+		end))
+	end
+
+	track(RunService.RenderStepped:Connect(function()
+		if tooltip and tooltip.Visible then
+			local m = guiMouse()
+			tooltip.Position = UDim2.fromOffset(m.X + 14, m.Y + 16)
+		end
+	end))
+
+	-- Context menu ----------------------------------------------
+	function w:ContextMenu(items, position)
+		local cam = workspace.CurrentCamera
+		local vp = (cam and cam.ViewportSize) or Vector2.new(1920, 1080)
+		local mh = #items * 28 + 12
+		local px = math.clamp(position.X, 8, math.max(8, vp.X - 178))
+		local py = math.clamp(position.Y, 8, math.max(8, vp.Y - mh - 8))
+
+		local layer = create("TextButton", {
+			Name = "ContextLayer",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			Text = "",
+			AutoButtonColor = false,
+			ZIndex = 400,
+			Parent = w.Gui,
+		})
+		local menu = create("Frame", {
+			Name = "ContextMenu",
+			Size = UDim2.fromOffset(170, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			Position = UDim2.fromOffset(px, py),
+			BackgroundColor3 = Library.Theme.Bg2,
+			BorderSizePixel = 0,
+			ZIndex = 401,
+			Parent = layer,
+		})
+		corner(menu, Library.Theme.RadiusSm)
+		stroke(menu, Library.Theme.Stroke, 1, 0.25)
+		create("UIListLayout", { Padding = UDim.new(0, 2), Parent = menu })
+		pad(menu, 5)
+
+		local function close() layer:Destroy() end
+
+		for _, item in ipairs(items) do
+			if item == "-" then
+				create("Frame", {
+					Size = UDim2.new(1, 0, 0, 1),
+					BackgroundColor3 = Library.Theme.Stroke,
+					BackgroundTransparency = 0.5,
+					BorderSizePixel = 0,
+					Parent = menu,
+				})
+			else
+				local b = create("TextButton", {
+					Size = UDim2.new(1, 0, 0, 26),
+					BackgroundColor3 = Library.Theme.Bg3,
+					BackgroundTransparency = 1,
+					Text = "  " .. (item.Name or "Item"),
+					Font = Library.Theme.Font,
+					TextSize = 13,
+					TextColor3 = item.Color or Library.Theme.Text,
+					TextXAlignment = Enum.TextXAlignment.Left,
+					AutoButtonColor = false,
+					Parent = menu,
+				})
+				corner(b, UDim.new(0, 4))
+				track(b.MouseEnter:Connect(function() tween(b, 0.1, { BackgroundTransparency = 0.2 }) end))
+				track(b.MouseLeave:Connect(function() tween(b, 0.1, { BackgroundTransparency = 1 }) end))
+				track(b.MouseButton1Click:Connect(function()
+					if item.Callback then task.spawn(item.Callback) end
+					close()
+				end))
+			end
+		end
+
+		track(layer.MouseButton1Click:Connect(close))
+		return close
+	end
+
+	function w:_ContextMenu(inst, items)
+		track(inst.MouseButton2Click:Connect(function()
+			local m = guiMouse()
+			w:ContextMenu(items, Vector2.new(m.X, m.Y))
+		end))
+	end
+
+	local function decorate(row, cfg, parent)
+		registerSearchable(row, cfg.Name, parent)
+		if cfg.Tooltip then w:_Tooltip(row, cfg.Tooltip) end
+		if cfg.ContextMenu then w:_ContextMenu(row, cfg.ContextMenu) end
+	end
 
 	-- ScreenGui + scaled root -----------------------------------
 	w.Gui = create("ScreenGui", {
@@ -406,6 +575,34 @@ function Library.new(config)
 		})
 		reg(sub, "TextColor3", "TextMuted")
 	end
+
+	-- search box (filters components across tabs)
+	local searchBox = create("TextBox", {
+		Name = "SearchBox",
+		Size = UDim2.fromOffset(150, 26),
+		Position = UDim2.new(1, -232, 0.5, 0),
+		AnchorPoint = Vector2.new(0, 0.5),
+		BackgroundColor3 = Library.Theme.Bg2,
+		BackgroundTransparency = 0.15,
+		Text = "",
+		PlaceholderText = "Search...",
+		PlaceholderColor3 = Library.Theme.TextMuted,
+		Font = Library.Theme.Font,
+		TextSize = 12,
+		TextColor3 = Library.Theme.Text,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ClearTextOnFocus = false,
+		ZIndex = 2,
+		Parent = bar,
+	})
+	corner(searchBox, Library.Theme.RadiusSm)
+	create("UIPadding", {
+		PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8),
+		Parent = searchBox,
+	})
+	track(searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+		w:ApplySearch(searchBox.Text)
+	end))
 
 	-- divider under the bar
 	create("Frame", {
@@ -863,6 +1060,8 @@ function Library.new(config)
 			Parent = holder,
 		})
 		pad(holder, 8)
+		holder._searchSection = frame
+		sectionFrames[#sectionFrames + 1] = frame
 
 		track(headerBtn.MouseButton1Click:Connect(function()
 			collapsed = not collapsed
@@ -880,10 +1079,12 @@ function Library.new(config)
 		function section:Toggle(cfg)          return w:_Toggle(holder, cfg) end
 		function section:Button(cfg)          return w:_Button(holder, cfg) end
 		function section:Slider(cfg)          return w:_Slider(holder, cfg) end
+		function section:RangeSlider(cfg)     return w:_RangeSlider(holder, cfg) end
 		function section:Dropdown(cfg)        return w:_Dropdown(holder, cfg) end
 		function section:TextBox(cfg)         return w:_TextBox(holder, cfg) end
 		function section:Keybind(cfg)         return w:_Keybind(holder, cfg) end
 		function section:ColorPicker(cfg)     return w:_ColorPicker(holder, cfg) end
+		function section:Progress(cfg)        return w:_Progress(holder, cfg) end
 		function section:Label(cfg)           return w:_Label(holder, cfg) end
 		function section:Paragraph(cfg)       return w:_Paragraph(holder, cfg) end
 		function section:UnloadButton(cfg)    return w:_UnloadButton(holder, cfg) end
@@ -954,6 +1155,7 @@ function Library.new(config)
 		track(switch.MouseButton1Click:Connect(function() api:Set(not state) end))
 		onTheme(render)
 		render()
+		decorate(row, cfg, parent)
 		if cfg.Flag then w.Flags[cfg.Flag] = state; w.Options[cfg.Flag] = api end
 		return api
 	end
@@ -996,6 +1198,7 @@ function Library.new(config)
 		track(btn.MouseButton1Click:Connect(function()
 			if cfg.Callback then task.spawn(cfg.Callback) end
 		end))
+		decorate(btn, cfg, parent)
 		return btn
 	end
 
@@ -1137,7 +1340,7 @@ function Library.new(config)
 		end
 
 		local function mouseOverRow()
-			local m = UserInputService:GetMouseLocation()
+			local m = guiMouse()
 			local p, s = row.AbsolutePosition, row.AbsoluteSize
 			return m.X >= p.X and m.X <= p.X + s.X and m.Y >= p.Y and m.Y <= p.Y + s.Y
 		end
@@ -1174,6 +1377,7 @@ function Library.new(config)
 
 		onTheme(render)
 		render()
+		decorate(row, cfg, parent)
 		if cfg.Flag then w.Flags[cfg.Flag] = value; w.Options[cfg.Flag] = api end
 		return api
 	end
@@ -1419,6 +1623,7 @@ function Library.new(config)
 			end
 		end))
 
+		decorate(container, cfg, parent)
 		if cfg.Flag then w.Flags[cfg.Flag] = api:Get(); w.Options[cfg.Flag] = api end
 		return api
 	end
@@ -1480,6 +1685,7 @@ function Library.new(config)
 			if cfg.Callback and not silent then task.spawn(cfg.Callback, box.Text) end
 		end
 
+		decorate(row, cfg, parent)
 		if cfg.Flag then w.Flags[cfg.Flag] = box.Text; w.Options[cfg.Flag] = api end
 		return api
 	end
@@ -1589,6 +1795,7 @@ function Library.new(config)
 
 		api:Set(key, true)
 		renderActive()
+		decorate(row, cfg, parent)
 		if cfg.Flag then w.Options[cfg.Flag] = api end
 		return api
 	end
@@ -1773,7 +1980,9 @@ function Library.new(config)
 			if input.UserInputType == Enum.UserInputType.MouseButton1
 				or input.UserInputType == Enum.UserInputType.Touch then
 				if scrollParent then scrollParent.ScrollingEnabled = false end
-				local function apply(x, y)
+				local function apply(rawX, rawY)
+					local inset = guiInset()
+					local x, y = rawX - inset.X, rawY - inset.Y
 					local p, sz = field.AbsolutePosition, field.AbsoluteSize
 					s = math.clamp((x - p.X) / math.max(sz.X, 1), 0, 1)
 					v = 1 - math.clamp((y - p.Y) / math.max(sz.Y, 1), 0, 1)
@@ -1848,7 +2057,236 @@ function Library.new(config)
 		end
 
 		updateVisuals()
+		decorate(container, cfg, parent)
 		if cfg.Flag then w.Flags[cfg.Flag] = api:Get(); w.Options[cfg.Flag] = api end
+		return api
+	end
+
+	-- RangeSlider -----------------------------------------------
+	function w:_RangeSlider(parent, cfg)
+		cfg = cfg or {}
+		local min      = cfg.Min or 0
+		local max      = cfg.Max or 100
+		local decimals = cfg.Decimals or 0
+		local lo, hi = min, max
+		if type(cfg.Default) == "table" then
+			lo = math.clamp(cfg.Default[1] or min, min, max)
+			hi = math.clamp(cfg.Default[2] or max, min, max)
+		end
+		local scrollParent = parent:FindFirstAncestorWhichIsA("ScrollingFrame")
+
+		local row = create("Frame", {
+			Size = UDim2.new(1, 0, 0, 42),
+			BackgroundTransparency = 1,
+			Active = true,
+			Parent = parent,
+		})
+		local nameLabel = create("TextLabel", {
+			Size = UDim2.new(1, -70, 0, 18),
+			BackgroundTransparency = 1,
+			Text = cfg.Name or "Range",
+			Font = Library.Theme.Font,
+			TextSize = 13,
+			TextColor3 = Library.Theme.Text,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Parent = row,
+		})
+		reg(nameLabel, "TextColor3", "Text")
+		local valueLabel = create("TextLabel", {
+			Size = UDim2.new(0, 70, 0, 18),
+			Position = UDim2.new(1, -70, 0, 0),
+			BackgroundTransparency = 1,
+			Text = "",
+			Font = Library.Theme.Font,
+			TextSize = 12,
+			TextColor3 = Library.Theme.TextSub,
+			TextXAlignment = Enum.TextXAlignment.Right,
+			Parent = row,
+		})
+		reg(valueLabel, "TextColor3", "TextSub")
+
+		local trackFrame = create("Frame", {
+			Size = UDim2.new(1, 0, 0, 6),
+			Position = UDim2.fromOffset(0, 28),
+			BackgroundColor3 = Library.Theme.Bg4,
+			BorderSizePixel = 0,
+			Active = false,
+			Parent = row,
+		})
+		corner(trackFrame, UDim.new(1, 0))
+
+		local fill = create("Frame", {
+			Size = UDim2.new(0, 0, 1, 0),
+			BackgroundColor3 = Library.Theme.Primary,
+			BorderSizePixel = 0,
+			Parent = trackFrame,
+		})
+		corner(fill, UDim.new(1, 0))
+		vgradient(fill, 0, 0, Color3.fromRGB(255, 255, 255), Color3.fromRGB(190, 210, 255))
+
+		local knobLo = create("Frame", {
+			Size = UDim2.fromOffset(14, 14),
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.new(0, 0, 0.5, 0),
+			BackgroundColor3 = Library.Theme.Text,
+			BorderSizePixel = 0,
+			Parent = trackFrame,
+		})
+		corner(knobLo, UDim.new(1, 0))
+		local knobHi = create("Frame", {
+			Size = UDim2.fromOffset(14, 14),
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.new(1, 0, 0.5, 0),
+			BackgroundColor3 = Library.Theme.Text,
+			BorderSizePixel = 0,
+			Parent = trackFrame,
+		})
+		corner(knobHi, UDim.new(1, 0))
+
+		local function fmt(v)
+			return string.format("%." .. decimals .. "f", v)
+		end
+		local function alphaOf(v)
+			return (max > min) and (v - min) / (max - min) or 0
+		end
+		local function render()
+			local aLo, aHi = alphaOf(lo), alphaOf(hi)
+			fill.Position = UDim2.new(aLo, 0, 0, 0)
+			fill.Size = UDim2.new(aHi - aLo, 0, 1, 0)
+			knobLo.Position = UDim2.new(aLo, 0, 0.5, 0)
+			knobHi.Position = UDim2.new(aHi, 0, 0.5, 0)
+			valueLabel.Text = fmt(lo) .. " - " .. fmt(hi)
+			tween(fill, 0.15, { BackgroundColor3 = Library.Theme.Primary })
+			tween(knobLo, 0.15, { BackgroundColor3 = Library.Theme.Text })
+			tween(knobHi, 0.15, { BackgroundColor3 = Library.Theme.Text })
+		end
+
+		local api = {}
+		function api:Get() return { lo, hi } end
+		function api:Set(value, silent)
+			if type(value) == "table" then
+				lo = math.clamp(tonumber(value[1]) or min, min, max)
+				hi = math.clamp(tonumber(value[2]) or max, min, max)
+			end
+			if lo > hi then lo, hi = hi, lo end
+			render()
+			if cfg.Flag then w.Flags[cfg.Flag] = { lo, hi } end
+			if cfg.Callback and not silent then task.spawn(cfg.Callback, { lo, hi }) end
+		end
+
+		local function valFromX(x)
+			local rel = math.clamp((x - trackFrame.AbsolutePosition.X) / math.max(trackFrame.AbsoluteSize.X, 1), 0, 1)
+			local raw = min + rel * (max - min)
+			if decimals == 0 then
+				raw = math.floor(raw + 0.5)
+			else
+				local mult = 10 ^ decimals
+				raw = math.floor(raw * mult + 0.5) / mult
+			end
+			return raw
+		end
+
+		track(row.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1
+				or input.UserInputType == Enum.UserInputType.Touch then
+				if scrollParent then scrollParent.ScrollingEnabled = false end
+				local inset = guiInset()
+				local mx = UserInputService:GetMouseLocation().X - inset.X
+				local target = valFromX(mx)
+				local which = (math.abs(target - lo) <= math.abs(target - hi)) and "lo" or "hi"
+				local function apply(x)
+					local v = valFromX(x)
+					if which == "lo" then
+						lo = math.min(v, hi)
+					else
+						hi = math.max(v, lo)
+					end
+					render()
+					if cfg.Flag then w.Flags[cfg.Flag] = { lo, hi } end
+					if cfg.Callback then task.spawn(cfg.Callback, { lo, hi }) end
+				end
+				apply(mx)
+				Drag.begin({
+					move = function(x) apply(x - inset.X) end,
+					stop = function() if scrollParent then scrollParent.ScrollingEnabled = true end end,
+				})
+			end
+		end))
+
+		onTheme(render)
+		render()
+		decorate(row, cfg, parent)
+		if cfg.Flag then w.Flags[cfg.Flag] = { lo, hi }; w.Options[cfg.Flag] = api end
+		return api
+	end
+
+	-- Progress --------------------------------------------------
+	function w:_Progress(parent, cfg)
+		cfg = cfg or {}
+		local min   = cfg.Min or 0
+		local max   = cfg.Max or 100
+		local value = cfg.Default or min
+
+		local row = create("Frame", {
+			Size = UDim2.new(1, 0, 0, 34),
+			BackgroundTransparency = 1,
+			Parent = parent,
+		})
+		local nameLabel = create("TextLabel", {
+			Size = UDim2.new(1, -50, 0, 16),
+			BackgroundTransparency = 1,
+			Text = cfg.Name or "Progress",
+			Font = Library.Theme.Font,
+			TextSize = 13,
+			TextColor3 = Library.Theme.Text,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Parent = row,
+		})
+		reg(nameLabel, "TextColor3", "Text")
+		local valueLabel = create("TextLabel", {
+			Size = UDim2.new(0, 50, 0, 16),
+			Position = UDim2.new(1, -50, 0, 0),
+			BackgroundTransparency = 1,
+			Text = "0%",
+			Font = Library.Theme.Font,
+			TextSize = 12,
+			TextColor3 = Library.Theme.TextSub,
+			TextXAlignment = Enum.TextXAlignment.Right,
+			Parent = row,
+		})
+		reg(valueLabel, "TextColor3", "TextSub")
+
+		local bar = create("Frame", {
+			Size = UDim2.new(1, 0, 0, 8),
+			Position = UDim2.fromOffset(0, 22),
+			BackgroundColor3 = Library.Theme.Bg4,
+			BorderSizePixel = 0,
+			Parent = row,
+		})
+		corner(bar, UDim.new(1, 0))
+		local fill = create("Frame", {
+			Size = UDim2.new(0, 0, 1, 0),
+			BackgroundColor3 = cfg.Color or Library.Theme.Primary,
+			BorderSizePixel = 0,
+			Parent = bar,
+		})
+		corner(fill, UDim.new(1, 0))
+		vgradient(fill, 0, 0, Color3.fromRGB(255, 255, 255), Color3.fromRGB(190, 210, 255))
+
+		local api = {}
+		function api:Set(v, silent)
+			v = math.clamp(tonumber(v) or min, min, max)
+			value = v
+			local alpha = (max > min) and (value - min) / (max - min) or 0
+			tween(fill, 0.2, { Size = UDim2.new(alpha, 0, 1, 0) })
+			valueLabel.Text = string.format("%d%%", math.floor(alpha * 100 + 0.5))
+			if cfg.Flag then w.Flags[cfg.Flag] = value end
+			if cfg.Callback and not silent then task.spawn(cfg.Callback, value) end
+		end
+		function api:Get() return value end
+		api:Set(value, true)
+		decorate(row, cfg, parent)
+		if cfg.Flag then w.Options[cfg.Flag] = api end
 		return api
 	end
 
@@ -1937,7 +2375,12 @@ function Library.new(config)
 			bodyH = math.ceil(bounds.Y)
 		end
 		local gap = (bodyH > 0) and 3 or 0
-		local totalH = PADDING + titleH + gap + bodyH + PADDING
+		local actions = cfg.Actions
+		local hasActions = type(actions) == "table" and #actions > 0
+		local progressH = cfg.Progress and 14 or 0
+		local actionsH = hasActions and 30 or 0
+		local extraGap = (progressH > 0 or actionsH > 0) and 6 or 0
+		local totalH = PADDING + titleH + gap + bodyH + extraGap + progressH + actionsH + PADDING
 
 		local card = create("CanvasGroup", {
 			Size = UDim2.fromOffset(WIDTH, totalH),
@@ -2028,6 +2471,58 @@ function Library.new(config)
 			track(t.Completed:Connect(function() card:Destroy() end))
 		end
 		entry = { dismiss = dismiss }
+
+		local cursorY = titleH + gap + bodyH + extraGap
+		if progressH > 0 then
+			local pbar = create("Frame", {
+				Size = UDim2.fromOffset(innerW, 6),
+				Position = UDim2.fromOffset(0, cursorY),
+				BackgroundColor3 = Library.Theme.Bg4,
+				BorderSizePixel = 0,
+				Parent = card,
+			})
+			corner(pbar, UDim.new(1, 0))
+			local pfill = create("Frame", {
+				Size = UDim2.new(math.clamp(cfg.Progress, 0, 1), 0, 1, 0),
+				BackgroundColor3 = cfg.Color or Library.Theme.Primary,
+				BorderSizePixel = 0,
+				Parent = pbar,
+			})
+			corner(pfill, UDim.new(1, 0))
+			cursorY = cursorY + 14
+		end
+		if hasActions then
+			local actionRow = create("Frame", {
+				Size = UDim2.new(1, 0, 0, 24),
+				Position = UDim2.fromOffset(0, cursorY),
+				BackgroundTransparency = 1,
+				Parent = card,
+			})
+			create("UIListLayout", {
+				FillDirection = Enum.FillDirection.Horizontal,
+				Padding = UDim.new(0, 6),
+				Parent = actionRow,
+			})
+			for _, action in ipairs(actions) do
+				local b = create("TextButton", {
+					Size = UDim2.fromOffset(0, 24),
+					AutomaticSize = Enum.AutomaticSize.X,
+					BackgroundColor3 = action.Color or Library.Theme.Primary,
+					BackgroundTransparency = 0.1,
+					Text = "  " .. (action.Name or "OK") .. "  ",
+					Font = Library.Theme.Font,
+					TextSize = 12,
+					TextColor3 = Color3.fromRGB(255, 255, 255),
+					AutoButtonColor = false,
+					Parent = actionRow,
+				})
+				corner(b, UDim.new(0, 5))
+				track(b.MouseButton1Click:Connect(function()
+					if action.Callback then task.spawn(action.Callback) end
+					dismiss()
+				end))
+			end
+		end
 
 		track(closeBtn.MouseButton1Click:Connect(dismiss))
 		track(click.MouseButton1Click:Connect(dismiss))
@@ -2199,6 +2694,162 @@ function Library.new(config)
 		})
 
 		return { Dropdown = dd, NameBox = nameBox, Refresh = refresh }
+	end
+
+	-- Modal -----------------------------------------------------
+	function w:Modal(cfg)
+		cfg = cfg or {}
+		local overlay = create("TextButton", {
+			Name = "ModalOverlay",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+			BackgroundTransparency = 0.5,
+			Text = "",
+			AutoButtonColor = false,
+			ZIndex = 450,
+			Parent = w.Gui,
+		})
+		local box = create("Frame", {
+			Name = "ModalBox",
+			Size = UDim2.fromOffset(cfg.Width or 360, 0),
+			AutomaticSize = Enum.AutomaticSize.Y,
+			Position = UDim2.fromScale(0.5, 0.5),
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			BackgroundColor3 = Library.Theme.Bg1,
+			BorderSizePixel = 0,
+			Active = true,
+			ZIndex = 451,
+			Parent = overlay,
+		})
+		corner(box, Library.Theme.Radius)
+		stroke(box, Library.Theme.Stroke, 1, 0.2)
+		pad(box, 16)
+		create("UIListLayout", { Padding = UDim.new(0, 10), Parent = box })
+
+		local title = create("TextLabel", {
+			Size = UDim2.new(1, 0, 0, 22),
+			BackgroundTransparency = 1,
+			Text = cfg.Title or "Dialog",
+			Font = Library.Theme.FontBold,
+			TextSize = 16,
+			TextColor3 = Library.Theme.Text,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Parent = box,
+		})
+		reg(title, "TextColor3", "Text")
+		if cfg.Text then
+			local body = create("TextLabel", {
+				Size = UDim2.new(1, 0, 0, 0),
+				AutomaticSize = Enum.AutomaticSize.Y,
+				BackgroundTransparency = 1,
+				Text = cfg.Text,
+				Font = Library.Theme.Font,
+				TextSize = 13,
+				TextColor3 = Library.Theme.TextSub,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextYAlignment = Enum.TextYAlignment.Top,
+				TextWrapped = true,
+				Parent = box,
+			})
+			reg(body, "TextColor3", "TextSub")
+		end
+
+		local row = create("Frame", {
+			Size = UDim2.new(1, 0, 0, 30),
+			BackgroundTransparency = 1,
+			Parent = box,
+		})
+		create("UIListLayout", {
+			FillDirection = Enum.FillDirection.Horizontal,
+			HorizontalAlignment = Enum.HorizontalAlignment.Right,
+			Padding = UDim.new(0, 8),
+			Parent = row,
+		})
+
+		local function close()
+			overlay:Destroy()
+		end
+
+		for _, btnCfg in ipairs(cfg.Buttons or { { Name = "OK" } }) do
+			local b = create("TextButton", {
+				Size = UDim2.fromOffset(btnCfg.Width or 90, 30),
+				BackgroundColor3 = btnCfg.Color or Library.Theme.Bg3,
+				BackgroundTransparency = 0.05,
+				Text = btnCfg.Name or "OK",
+				Font = Library.Theme.Font,
+				TextSize = 13,
+				TextColor3 = btnCfg.TextColor or Library.Theme.Text,
+				AutoButtonColor = false,
+				Parent = row,
+			})
+			corner(b, Library.Theme.RadiusSm)
+			track(b.MouseButton1Click:Connect(function()
+				if btnCfg.Callback then task.spawn(btnCfg.Callback) end
+				if btnCfg.Close ~= false then close() end
+			end))
+		end
+
+		if cfg.Dismissable then
+			track(overlay.MouseButton1Click:Connect(close))
+		end
+
+		return { Close = close, Box = box }
+	end
+
+	-- Watermark -------------------------------------------------
+	function w:Watermark(cfg)
+		cfg = cfg or {}
+		local frame = create("Frame", {
+			Name = "Watermark",
+			Size = UDim2.fromOffset(0, 26),
+			AutomaticSize = Enum.AutomaticSize.X,
+			Position = UDim2.fromOffset(12, 12),
+			BackgroundColor3 = Library.Theme.Bg1,
+			BackgroundTransparency = 0.1,
+			BorderSizePixel = 0,
+			ZIndex = 250,
+			Active = true,
+			Parent = w.Gui,
+		})
+		corner(frame, Library.Theme.RadiusSm)
+		stroke(frame, Library.Theme.Stroke, 1, 0.3)
+		create("UIPadding", {
+			PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10),
+			Parent = frame,
+		})
+		local label = create("TextLabel", {
+			Size = UDim2.new(0, 0, 1, 0),
+			AutomaticSize = Enum.AutomaticSize.X,
+			BackgroundTransparency = 1,
+			Text = cfg.Text or "LunarUI",
+			Font = Library.Theme.FontBold,
+			TextSize = 12,
+			TextColor3 = cfg.Color or Library.Theme.Primary,
+			Parent = frame,
+		})
+
+		track(frame.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1
+				or input.UserInputType == Enum.UserInputType.Touch then
+				local startMouse = UserInputService:GetMouseLocation()
+				local startPos = frame.Position
+				Drag.begin({
+					move = function(x, y)
+						local dx = x - startMouse.X
+						local dy = y - startMouse.Y
+						frame.Position = UDim2.new(
+							startPos.X.Scale, startPos.X.Offset + dx,
+							startPos.Y.Scale, startPos.Y.Offset + dy
+						)
+					end,
+				})
+			end
+		end))
+
+		local api = {}
+		function api:SetText(t) label.Text = t end
+		function api:Destroy() frame:Destroy() end
+		return api
 	end
 
 	-- Scale / Unload --------------------------------------------

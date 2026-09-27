@@ -1,15 +1,20 @@
 --!nocheck
 -- Roblox UI Library — Core
 -- Luau · Roblox Studio (LocalScript) oder Executor
--- Teil 1: Theme · Window (drag/minimize/close) · Tabs · Sections · Toggle · Button
--- Teil 2: Slider · Dropdown · TextBox · Keybind · ColorPicker · Label · Paragraph
---         Notifications · Config Save/Load
+-- v0.3
+--   · Slider-Drag gefixt (Active + Row-Hitbox)
+--   · Notifications kompakt, Höhe wird exakt berechnet (kein AutoSize-Messfehler)
+--   · Dropdown: SetOptions() → Config-Liste dynamisch neu befüllbar
+--   · ConfigManager: Dropdown der gespeicherten Configs + Save/Load/Delete/Refresh
+--   · Unload: sauber, trennt alle Verbindungen; UnloadButton als Komponente
+--   · ListConfigs() zum Auflisten gespeicherter Configs
 
 local TweenService     = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local RunService       = game:GetService("RunService")
 local Players          = game:GetService("Players")
 local HttpService      = game:GetService("HttpService")
+local TextService      = game:GetService("TextService")
 
 local Library = {}
 
@@ -25,10 +30,16 @@ Library.Theme = {
 	Text       = Color3.fromRGB(236, 236, 242),
 	Subtext    = Color3.fromRGB(148, 148, 160),
 	Outline    = Color3.fromRGB(46, 46, 56),
+	Danger     = Color3.fromRGB(150, 50, 55),
+	DangerHi   = Color3.fromRGB(190, 65, 70),
 	Font       = Enum.Font.Gotham,
 	FontBold   = Enum.Font.GothamBold,
 	Corner     = UDim.new(0, 8),
 }
+
+Library.ConfigFolder = "LunarUI"
+Library.NotifyWidth  = 240
+Library.MaxNotifies  = 5
 
 ------------------------------------------------------------
 -- Instance helpers
@@ -96,6 +107,12 @@ function Library.new(config)
 	local w = { Flags = {}, Tabs = {}, Options = {} }
 	local fullSize = config.Size or UDim2.fromOffset(520, 340)
 
+	local connections = {}
+	local function track(conn)
+		connections[#connections + 1] = conn
+		return conn
+	end
+
 	w.Gui = create("ScreenGui", {
 		Name = "LunarUI",
 		ResetOnSpawn = false,
@@ -122,6 +139,7 @@ function Library.new(config)
 		Size = UDim2.new(1, 0, 0, 36),
 		BackgroundColor3 = Library.Theme.Surface,
 		BorderSizePixel = 0,
+		Active = true,
 		Parent = w.Main,
 	})
 	corner(bar)
@@ -187,32 +205,32 @@ function Library.new(config)
 	local closeBtn = barButton("x", -34, Color3.fromRGB(255, 120, 120))
 
 	local minimized = false
-	minBtn.MouseButton1Click:Connect(function()
+	track(minBtn.MouseButton1Click:Connect(function()
 		minimized = not minimized
 		body.Visible = not minimized
 		local goal = minimized
 			and UDim2.new(fullSize.X.Scale, fullSize.X.Offset, 0, 36)
 			or fullSize
 		tween(w.Main, 0.18, { Size = goal })
-	end)
-	closeBtn.MouseButton1Click:Connect(function() w:Destroy() end)
+	end))
+	track(closeBtn.MouseButton1Click:Connect(function() w:Unload() end))
 
 	-- Dragging --------------------------------------------------
 	local dragging, dragStart, startPos
-	bar.InputBegan:Connect(function(input)
+	track(bar.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
 			dragging  = true
 			dragStart = input.Position
 			startPos  = w.Main.Position
-			input.Changed:Connect(function()
+			track(input.Changed:Connect(function()
 				if input.UserInputState == Enum.UserInputState.End then
 					dragging = false
 				end
-			end)
+			end))
 		end
-	end)
-	UserInputService.InputChanged:Connect(function(input)
+	end))
+	track(UserInputService.InputChanged:Connect(function(input)
 		if not dragging then return end
 		if input.UserInputType == Enum.UserInputType.MouseMovement
 			or input.UserInputType == Enum.UserInputType.Touch then
@@ -222,7 +240,7 @@ function Library.new(config)
 				startPos.Y.Scale, startPos.Y.Offset + d.Y
 			)
 		end
-	end)
+	end))
 
 	-- Tabs ------------------------------------------------------
 	function w:Tab(name)
@@ -285,7 +303,7 @@ function Library.new(config)
 			return w:_Section(page, sectionName)
 		end
 
-		btn.MouseButton1Click:Connect(function() tab:Select() end)
+		track(btn.MouseButton1Click:Connect(function() tab:Select() end))
 
 		table.insert(w.Tabs, tab)
 		if #w.Tabs == 1 then tab:Select() end
@@ -332,15 +350,17 @@ function Library.new(config)
 		pad(holder, 6)
 
 		local section = {}
-		function section:Toggle(cfg)       return w:_Toggle(holder, cfg) end
-		function section:Button(cfg)       return w:_Button(holder, cfg) end
-		function section:Slider(cfg)       return w:_Slider(holder, cfg) end
-		function section:Dropdown(cfg)     return w:_Dropdown(holder, cfg) end
-		function section:TextBox(cfg)      return w:_TextBox(holder, cfg) end
-		function section:Keybind(cfg)      return w:_Keybind(holder, cfg) end
-		function section:ColorPicker(cfg)  return w:_ColorPicker(holder, cfg) end
-		function section:Label(cfg)        return w:_Label(holder, cfg) end
-		function section:Paragraph(cfg)    return w:_Paragraph(holder, cfg) end
+		function section:Toggle(cfg)          return w:_Toggle(holder, cfg) end
+		function section:Button(cfg)          return w:_Button(holder, cfg) end
+		function section:Slider(cfg)          return w:_Slider(holder, cfg) end
+		function section:Dropdown(cfg)        return w:_Dropdown(holder, cfg) end
+		function section:TextBox(cfg)         return w:_TextBox(holder, cfg) end
+		function section:Keybind(cfg)         return w:_Keybind(holder, cfg) end
+		function section:ColorPicker(cfg)     return w:_ColorPicker(holder, cfg) end
+		function section:Label(cfg)           return w:_Label(holder, cfg) end
+		function section:Paragraph(cfg)       return w:_Paragraph(holder, cfg) end
+		function section:UnloadButton(cfg)    return w:_UnloadButton(holder, cfg) end
+		function section:ConfigManager(cfg)   return w:_ConfigManager(section, cfg) end
 		return section
 	end
 
@@ -404,7 +424,7 @@ function Library.new(config)
 		end
 		function api:Get() return state end
 
-		switch.MouseButton1Click:Connect(function() api:Set(not state) end)
+		track(switch.MouseButton1Click:Connect(function() api:Set(not state) end))
 		if cfg.Flag then w.Flags[cfg.Flag] = state; w.Options[cfg.Flag] = api end
 		return api
 	end
@@ -412,27 +432,42 @@ function Library.new(config)
 	-- Button ----------------------------------------------------
 	function w:_Button(parent, cfg)
 		cfg = cfg or {}
+		local base = cfg.Color or Library.Theme.SurfaceAlt
+		local hover = cfg.HoverColor
+			or (cfg.Color and cfg.Color:Lerp(Color3.new(0, 0, 0), 0.18))
+			or Library.Theme.AccentDim
+
 		local btn = create("TextButton", {
 			Size = UDim2.new(1, 0, 0, 28),
-			BackgroundColor3 = Library.Theme.SurfaceAlt,
+			BackgroundColor3 = base,
 			Text = cfg.Name or "Button",
 			Font = Library.Theme.Font,
 			TextSize = 13,
-			TextColor3 = Library.Theme.Text,
+			TextColor3 = cfg.TextColor or Library.Theme.Text,
 			AutoButtonColor = false,
 			Parent = parent,
 		})
 		corner(btn, UDim.new(0, 6))
-		btn.MouseEnter:Connect(function()
-			tween(btn, 0.12, { BackgroundColor3 = Library.Theme.AccentDim })
-		end)
-		btn.MouseLeave:Connect(function()
-			tween(btn, 0.12, { BackgroundColor3 = Library.Theme.SurfaceAlt })
-		end)
-		btn.MouseButton1Click:Connect(function()
+		track(btn.MouseEnter:Connect(function()
+			tween(btn, 0.12, { BackgroundColor3 = hover })
+		end))
+		track(btn.MouseLeave:Connect(function()
+			tween(btn, 0.12, { BackgroundColor3 = base })
+		end))
+		track(btn.MouseButton1Click:Connect(function()
 			if cfg.Callback then task.spawn(cfg.Callback) end
-		end)
+		end))
 		return btn
+	end
+
+	function w:_UnloadButton(parent, cfg)
+		cfg = cfg or {}
+		return w:_Button(parent, {
+			Name = cfg.Name or "Unload UI",
+			Color = cfg.Color or Library.Theme.Danger,
+			HoverColor = cfg.HoverColor or Library.Theme.DangerHi,
+			Callback = function() w:Unload() end,
+		})
 	end
 
 	-- Slider ----------------------------------------------------
@@ -444,9 +479,11 @@ function Library.new(config)
 		local suffix   = cfg.Suffix or ""
 		local value    = cfg.Default or min
 
+		-- ganze Zeile ist Hitbox → überall greifbar
 		local row = create("Frame", {
 			Size = UDim2.new(1, 0, 0, 40),
 			BackgroundTransparency = 1,
+			Active = true,
 			Parent = parent,
 		})
 		create("TextLabel", {
@@ -472,10 +509,11 @@ function Library.new(config)
 		})
 
 		local track = create("Frame", {
-			Size = UDim2.new(1, 0, 0, 6),
+			Size = UDim2.new(1, 0, 0, 8),
 			Position = UDim2.fromOffset(0, 26),
 			BackgroundColor3 = Library.Theme.SurfaceAlt,
 			BorderSizePixel = 0,
+			Active = false,
 			Parent = row,
 		})
 		corner(track, UDim.new(1, 0))
@@ -501,10 +539,9 @@ function Library.new(config)
 		local function fmt(v)
 			return string.format("%." .. decimals .. "f", v) .. suffix
 		end
-
 		local function render()
 			local alpha = (max > min) and (value - min) / (max - min) or 0
-			fill.Size    = UDim2.new(alpha, 0, 1, 0)
+			fill.Size     = UDim2.new(alpha, 0, 1, 0)
 			knob.Position = UDim2.new(alpha, 0, 0.5, 0)
 			valueLabel.Text = fmt(value)
 		end
@@ -532,26 +569,27 @@ function Library.new(config)
 			end
 			api:Set(raw)
 		end
-		track.InputBegan:Connect(function(input)
+
+		track(row.InputBegan:Connect(function(input)
 			if input.UserInputType == Enum.UserInputType.MouseButton1
 				or input.UserInputType == Enum.UserInputType.Touch then
 				isDragging = true
 				updateFromX(input.Position.X)
 			end
-		end)
-		UserInputService.InputChanged:Connect(function(input)
+		end))
+		track(UserInputService.InputChanged:Connect(function(input)
 			if not isDragging then return end
 			if input.UserInputType == Enum.UserInputType.MouseMovement
 				or input.UserInputType == Enum.UserInputType.Touch then
 				updateFromX(input.Position.X)
 			end
-		end)
-		UserInputService.InputEnded:Connect(function(input)
+		end))
+		track(UserInputService.InputEnded:Connect(function(input)
 			if input.UserInputType == Enum.UserInputType.MouseButton1
 				or input.UserInputType == Enum.UserInputType.Touch then
 				isDragging = false
 			end
-		end)
+		end))
 
 		render()
 		if cfg.Flag then w.Flags[cfg.Flag] = value; w.Options[cfg.Flag] = api end
@@ -561,9 +599,10 @@ function Library.new(config)
 	-- Dropdown --------------------------------------------------
 	function w:_Dropdown(parent, cfg)
 		cfg = cfg or {}
+		local multi = cfg.Multi and true or false
 		local options = cfg.Options or {}
-		local multi   = cfg.Multi and true or false
 		local selected
+		local optionButtons = {}
 
 		if multi then
 			selected = {}
@@ -630,6 +669,8 @@ function Library.new(config)
 		create("UIListLayout", { Padding = UDim.new(0, 2), Parent = list })
 		pad(list, 4)
 
+		local api = {}
+
 		local function currentDisplay()
 			if multi then
 				local parts = {}
@@ -638,14 +679,53 @@ function Library.new(config)
 				end
 				return (#parts > 0) and table.concat(parts, ", ") or (cfg.Placeholder or "Select...")
 			end
-			return selected.value ~= nil and tostring(selected.value) or (cfg.Placeholder or "Select...")
+			return (selected.value ~= nil) and tostring(selected.value) or (cfg.Placeholder or "Select...")
 		end
 
-		local api = {}
 		local function refresh()
 			title.Text = currentDisplay()
 			if cfg.Flag then w.Flags[cfg.Flag] = api:Get() end
 		end
+
+		local function clearOptions()
+			for _, ob in ipairs(optionButtons) do ob:Destroy() end
+			optionButtons = {}
+		end
+
+		local function buildOptions()
+			clearOptions()
+			for _, opt in ipairs(options) do
+				local ob = create("TextButton", {
+					Size = UDim2.new(1, 0, 0, 24),
+					BackgroundColor3 = Library.Theme.SurfaceAlt,
+					BackgroundTransparency = 1,
+					Text = "   " .. tostring(opt),
+					Font = Library.Theme.Font,
+					TextSize = 13,
+					TextColor3 = Library.Theme.Text,
+					TextXAlignment = Enum.TextXAlignment.Left,
+					AutoButtonColor = false,
+					Parent = list,
+				})
+				corner(ob, UDim.new(0, 4))
+				track(ob.MouseEnter:Connect(function() tween(ob, 0.1, { BackgroundTransparency = 0 }) end))
+				track(ob.MouseLeave:Connect(function() tween(ob, 0.1, { BackgroundTransparency = 1 }) end))
+				track(ob.MouseButton1Click:Connect(function()
+					if multi then
+						selected[opt] = not selected[opt]
+					else
+						selected.value = opt
+						list.Visible = false
+						list.Size = UDim2.new(1, 0, 0, 0)
+						arrow.Text = "v"
+					end
+					refresh()
+					if cfg.Callback then task.spawn(cfg.Callback, api:Get()) end
+				end))
+				table.insert(optionButtons, ob)
+			end
+		end
+
 		function api:Get()
 			if multi then
 				local t = {}
@@ -656,58 +736,43 @@ function Library.new(config)
 			end
 			return selected.value
 		end
-		function api:Set(val, silent)
+
+		function api:Set(value, silent)
 			if multi then
 				selected = {}
-				if type(val) == "table" then
-					for _, v in ipairs(val) do selected[v] = true end
+				if type(value) == "table" then
+					for _, v in ipairs(value) do selected[v] = true end
 				end
 			else
-				selected = { value = val }
+				selected = { value = value }
 			end
 			refresh()
 			if cfg.Callback and not silent then task.spawn(cfg.Callback, api:Get()) end
 		end
 
-		for _, opt in ipairs(options) do
-			local ob = create("TextButton", {
-				Size = UDim2.new(1, 0, 0, 24),
-				BackgroundColor3 = Library.Theme.SurfaceAlt,
-				BackgroundTransparency = 1,
-				Text = "   " .. tostring(opt),
-				Font = Library.Theme.Font,
-				TextSize = 13,
-				TextColor3 = Library.Theme.Text,
-				TextXAlignment = Enum.TextXAlignment.Left,
-				AutoButtonColor = false,
-				Parent = list,
-			})
-			corner(ob, UDim.new(0, 4))
-			ob.MouseEnter:Connect(function() tween(ob, 0.1, { BackgroundTransparency = 0 }) end)
-			ob.MouseLeave:Connect(function() tween(ob, 0.1, { BackgroundTransparency = 1 }) end)
-			ob.MouseButton1Click:Connect(function()
-				if multi then
-					selected[opt] = not selected[opt]
-				else
-					selected.value = opt
-					list.Visible = false
-					list.Size = UDim2.new(1, 0, 0, 0)
-					arrow.Text = "v"
-				end
-				refresh()
-				if cfg.Callback then task.spawn(cfg.Callback, api:Get()) end
-			end)
+		function api:SetOptions(newOptions, keepSelection)
+			options = newOptions or {}
+			if not keepSelection then
+				selected = multi and {} or { value = nil }
+			end
+			buildOptions()
+			if list.Visible then
+				list.Size = UDim2.new(1, 0, 0, math.min(#options * 26 + 8, 140))
+			end
+			refresh()
 		end
 
-		header.MouseButton1Click:Connect(function()
+		buildOptions()
+		refresh()
+
+		track(header.MouseButton1Click:Connect(function()
 			list.Visible = not list.Visible
 			list.Size = list.Visible
 				and UDim2.new(1, 0, 0, math.min(#options * 26 + 8, 140))
 				or UDim2.new(1, 0, 0, 0)
 			arrow.Text = list.Visible and "^" or "v"
-		end)
+		end))
 
-		refresh()
 		if cfg.Flag then w.Flags[cfg.Flag] = api:Get(); w.Options[cfg.Flag] = api end
 		return api
 	end
@@ -752,10 +817,10 @@ function Library.new(config)
 			if cfg.Flag then w.Flags[cfg.Flag] = box.Text end
 			if cfg.Callback and not silent then task.spawn(cfg.Callback, box.Text) end
 		end
-		box.FocusLost:Connect(function()
+		track(box.FocusLost:Connect(function()
 			if cfg.Flag then w.Flags[cfg.Flag] = box.Text end
 			if cfg.Callback then task.spawn(cfg.Callback, box.Text) end
-		end)
+		end))
 
 		if cfg.Flag then w.Flags[cfg.Flag] = box.Text; w.Options[cfg.Flag] = api end
 		return api
@@ -804,9 +869,9 @@ function Library.new(config)
 		end
 
 		local captureConn
-		btn.MouseButton1Click:Connect(function()
+		track(btn.MouseButton1Click:Connect(function()
 			btn.Text = "..."
-			captureConn = UserInputService.InputBegan:Connect(function(input, gpe)
+			captureConn = track(UserInputService.InputBegan:Connect(function(input, gpe)
 				if gpe then return end
 				if input.UserInputType == Enum.UserInputType.Keyboard
 					or input.UserInputType == Enum.UserInputType.MouseButton then
@@ -816,16 +881,16 @@ function Library.new(config)
 					api:Set(name)
 					if captureConn then captureConn:Disconnect(); captureConn = nil end
 				end
-			end)
-		end)
+			end))
+		end))
 
 		if cfg.CallbackOnPress then
-			UserInputService.InputBegan:Connect(function(input, gpe)
+			track(UserInputService.InputBegan:Connect(function(input, gpe)
 				if gpe then return end
 				if input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode.Name == key then
 					if cfg.Callback then task.spawn(cfg.Callback, key) end
 				end
-			end)
+			end))
 		end
 
 		api:Set(key, true)
@@ -934,6 +999,8 @@ function Library.new(config)
 
 	-- Notifications ---------------------------------------------
 	local notifyGui, notifyList, notifyCount = nil, nil, 0
+	local activeNotifies = {}
+
 	local function ensureNotify()
 		if notifyGui and notifyGui.Parent then return end
 		notifyGui = create("ScreenGui", {
@@ -945,8 +1012,8 @@ function Library.new(config)
 		})
 		notifyList = create("Frame", {
 			Name = "List",
-			Size = UDim2.new(0, 260, 1, 0),
-			Position = UDim2.new(1, -20, 0, 20),
+			Size = UDim2.new(0, Library.NotifyWidth, 1, 0),
+			Position = UDim2.new(1, -16, 0, 16),
 			AnchorPoint = Vector2.new(1, 0),
 			BackgroundTransparency = 1,
 			Parent = notifyGui,
@@ -964,9 +1031,21 @@ function Library.new(config)
 		ensureNotify()
 		notifyCount = notifyCount + 1
 
+		local WIDTH = Library.NotifyWidth
+		local PADDING = 12
+		local innerW = WIDTH - PADDING * 2
+		local titleH = 16
+		local bodyText = cfg.Text or ""
+		local bodyH = 0
+		if #bodyText > 0 then
+			local bounds = TextService:GetTextSize(bodyText, 12, Library.Theme.Font, Vector2.new(innerW, 100000))
+			bodyH = math.ceil(bounds.Y)
+		end
+		local gap = (bodyH > 0) and 3 or 0
+		local totalH = PADDING + titleH + gap + bodyH + PADDING
+
 		local card = create("CanvasGroup", {
-			Size = UDim2.new(1, 0, 0, 0),
-			AutomaticSize = Enum.AutomaticSize.Y,
+			Size = UDim2.fromOffset(WIDTH, totalH),
 			BackgroundColor3 = Library.Theme.Surface,
 			BorderSizePixel = 0,
 			GroupTransparency = 1,
@@ -975,50 +1054,83 @@ function Library.new(config)
 		})
 		corner(card, UDim.new(0, 8))
 		stroke(card)
-		pad(card, 10)
-		create("UIListLayout", { Padding = UDim.new(0, 2), Parent = card })
+		pad(card, PADDING)
 
+		-- Klickfläche über ganzen Toast (unter den Buttons)
+		local click = create("TextButton", {
+			Size = UDim2.new(1, PADDING * 2, 1, PADDING * 2),
+			Position = UDim2.fromOffset(-PADDING, -PADDING),
+			BackgroundTransparency = 1,
+			Text = "",
+			Parent = card,
+		})
+
+		local titleRow = create("Frame", {
+			Size = UDim2.new(1, 0, 0, titleH),
+			BackgroundTransparency = 1,
+			Parent = card,
+		})
 		create("TextLabel", {
-			Size = UDim2.new(1, 0, 0, 16),
+			Size = UDim2.new(1, -20, 1, 0),
 			BackgroundTransparency = 1,
 			Text = cfg.Title or "Notify",
 			Font = Library.Theme.FontBold,
 			TextSize = 13,
 			TextColor3 = cfg.Color or Library.Theme.Accent,
 			TextXAlignment = Enum.TextXAlignment.Left,
-			Parent = card,
+			Parent = titleRow,
 		})
-		create("TextLabel", {
-			Size = UDim2.new(1, 0, 0, 0),
-			AutomaticSize = Enum.AutomaticSize.Y,
+		local closeBtn = create("TextButton", {
+			Size = UDim2.fromOffset(16, 16),
+			Position = UDim2.new(1, -16, 0, 0),
 			BackgroundTransparency = 1,
-			Text = cfg.Text or "",
-			Font = Library.Theme.Font,
+			Text = "x",
+			Font = Library.Theme.FontBold,
 			TextSize = 12,
 			TextColor3 = Library.Theme.Subtext,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			TextYAlignment = Enum.TextYAlignment.Top,
-			TextWrapped = true,
-			Parent = card,
+			AutoButtonColor = false,
+			Parent = titleRow,
 		})
 
-		tween(card, 0.25, { GroupTransparency = 0 })
+		if bodyH > 0 then
+			create("TextLabel", {
+				Size = UDim2.fromOffset(innerW, bodyH),
+				Position = UDim2.fromOffset(0, titleH + gap),
+				BackgroundTransparency = 1,
+				Text = bodyText,
+				Font = Library.Theme.Font,
+				TextSize = 12,
+				TextColor3 = Library.Theme.Subtext,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextYAlignment = Enum.TextYAlignment.Top,
+				TextWrapped = true,
+				Parent = card,
+			})
+		end
+
+		tween(card, 0.2, { GroupTransparency = 0 })
 
 		local dismissed = false
+		local entry
 		local function dismiss()
 			if dismissed then return end
 			dismissed = true
-			local t = tween(card, 0.25, { GroupTransparency = 1 })
-			t.Completed:Connect(function() card:Destroy() end)
+			for i, e in ipairs(activeNotifies) do
+				if e == entry then table.remove(activeNotifies, i) break end
+			end
+			local t = tween(card, 0.2, { GroupTransparency = 1 })
+			track(t.Completed:Connect(function() card:Destroy() end))
 		end
+		entry = { dismiss = dismiss }
 
-		local click = create("TextButton", {
-			Size = UDim2.fromScale(1, 1),
-			BackgroundTransparency = 1,
-			Text = "",
-			Parent = card,
-		})
-		click.MouseButton1Click:Connect(dismiss)
+		track(closeBtn.MouseButton1Click:Connect(dismiss))
+		track(click.MouseButton1Click:Connect(dismiss))
+
+		table.insert(activeNotifies, entry)
+		while #activeNotifies > Library.MaxNotifies do
+			local oldest = table.remove(activeNotifies, 1)
+			if oldest and oldest.dismiss then oldest.dismiss() end
+		end
 
 		local duration = cfg.Duration or 4
 		if duration > 0 then
@@ -1046,14 +1158,32 @@ function Library.new(config)
 		return copy
 	end
 
+	function w:ListConfigs()
+		local names = {}
+		if fsAvailable() and type(listfiles) == "function" and type(isfolder) == "function" then
+			pcall(function()
+				if isfolder(Library.ConfigFolder) then
+					for _, path in ipairs(listfiles(Library.ConfigFolder)) do
+						local name = tostring(path):match("([^/\\]+)%.json$")
+						if name then table.insert(names, name) end
+					end
+				end
+			end)
+		elseif w._saved then
+			for name in pairs(w._saved) do table.insert(names, name) end
+		end
+		table.sort(names)
+		return names
+	end
+
 	function w:SaveConfig(name)
 		name = name or "default"
 		local data = HttpService:JSONEncode(w:GetFlags())
 		if fsAvailable() then
 			if type(isfolder) == "function" and type(makefolder) == "function" then
-				if not isfolder("LunarUI") then makefolder("LunarUI") end
+				if not isfolder(Library.ConfigFolder) then makefolder(Library.ConfigFolder) end
 			end
-			writefile("LunarUI/" .. name .. ".json", data)
+			writefile(Library.ConfigFolder .. "/" .. name .. ".json", data)
 		else
 			w._saved = w._saved or {}
 			w._saved[name] = data
@@ -1065,7 +1195,7 @@ function Library.new(config)
 		name = name or "default"
 		local data
 		if fsAvailable() then
-			local path = "LunarUI/" .. name .. ".json"
+			local path = Library.ConfigFolder .. "/" .. name .. ".json"
 			if not isfile(path) then
 				w:Notify({ Title = "Config", Text = "Not found: " .. name, Color = Color3.fromRGB(255, 120, 120) })
 				return
@@ -1101,7 +1231,7 @@ function Library.new(config)
 	function w:DeleteConfig(name)
 		name = name or "default"
 		if fsAvailable() then
-			local path = "LunarUI/" .. name .. ".json"
+			local path = Library.ConfigFolder .. "/" .. name .. ".json"
 			if isfile(path) then delfile(path) end
 		elseif w._saved then
 			w._saved[name] = nil
@@ -1109,10 +1239,74 @@ function Library.new(config)
 		w:Notify({ Title = "Config", Text = "Deleted: " .. name })
 	end
 
-	function w:Destroy()
+	-- Config manager (Dropdown + Save/Load/Delete/Refresh) -------
+	function w:_ConfigManager(section, cfg)
+		cfg = cfg or {}
+		local dd = section:Dropdown({
+			Name = cfg.Name or "Saved Configs",
+			Options = w:ListConfigs(),
+			Placeholder = (#w:ListConfigs() > 0) and "Select..." or "No configs found",
+		})
+		local nameBox = section:TextBox({
+			Name = "Name",
+			Default = cfg.DefaultName or "",
+			Placeholder = "new config name...",
+		})
+
+		local function refresh()
+			dd:SetOptions(w:ListConfigs(), false)
+		end
+
+		section:Button({
+			Name = "Save",
+			Callback = function()
+				local n = nameBox:Get()
+				if not n or n == "" then n = dd:Get() end
+				if not n or n == "" then n = "default" end
+				w:SaveConfig(n)
+				refresh()
+			end,
+		})
+		section:Button({
+			Name = "Load selected",
+			Callback = function()
+				local n = dd:Get()
+				if not n then
+					w:Notify({ Title = "Config", Text = "Keine Config ausgewählt", Color = Color3.fromRGB(255, 120, 120) })
+					return
+				end
+				w:LoadConfig(n)
+			end,
+		})
+		section:Button({
+			Name = "Delete selected",
+			Callback = function()
+				local n = dd:Get()
+				if not n then return end
+				w:DeleteConfig(n)
+				refresh()
+			end,
+		})
+		section:Button({
+			Name = "Refresh list",
+			Callback = refresh,
+		})
+
+		return { Dropdown = dd, NameBox = nameBox, Refresh = refresh }
+	end
+
+	-- Unload ----------------------------------------------------
+	function w:Unload()
+		for _, c in ipairs(connections) do
+			pcall(function() c:Disconnect() end)
+		end
+		connections = {}
+		activeNotifies = {}
 		if w.Gui then w.Gui:Destroy() end
 		if notifyGui then notifyGui:Destroy() end
 	end
+
+	w.Destroy = w.Unload
 
 	return w
 end

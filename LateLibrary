@@ -273,11 +273,23 @@ function Library.new(config)
 	w.Root = root
 	w.Scale = create("UIScale", { Scale = Library.Theme.Scale, Parent = root })
 
-	-- Soft shadow (sibling, follows Main) -----------------------
+	-- Soft shadow (two layers, follow Main) --------------------
+	local shadowSoft = create("Frame", {
+		Name = "ShadowSoft",
+		Size = fullSize + UDim2.fromOffset(30, 44),
+		Position = UDim2.new(0.5, 0, 0.5, 16),
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+		BackgroundTransparency = 0.9,
+		BorderSizePixel = 0,
+		Parent = root,
+	})
+	corner(shadowSoft, UDim.new(0, 26))
+
 	local shadow = create("Frame", {
 		Name = "Shadow",
-		Size = fullSize + UDim2.fromOffset(0, 10),
-		Position = UDim2.new(0.5, 0, 0.5, 4),
+		Size = fullSize + UDim2.fromOffset(0, 12),
+		Position = UDim2.new(0.5, 0, 0.5, 5),
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		BackgroundColor3 = Color3.fromRGB(0, 0, 0),
 		BackgroundTransparency = 0.72,
@@ -295,6 +307,7 @@ function Library.new(config)
 		BackgroundColor3 = Library.Theme.Bg0,
 		BackgroundTransparency = Library.Theme.WindowOpacity,
 		BorderSizePixel = 0,
+		ClipsDescendants = true,
 		Parent = root,
 	})
 	corner(w.Main, Library.Theme.RadiusLg)
@@ -309,49 +322,64 @@ function Library.new(config)
 	)
 	topHighlight(w.Main, 0.88)
 
+	-- pop-in scale for the open animation
+	w.AnimScale = create("UIScale", { Scale = 0.94, Parent = w.Main })
+
 	track(RunService.RenderStepped:Connect(function()
-		shadow.Position = UDim2.new(
-			w.Main.Position.X.Scale, w.Main.Position.X.Offset,
-			w.Main.Position.Y.Scale, w.Main.Position.Y.Offset + 4
-		)
-		shadow.Size = w.Main.Size + UDim2.fromOffset(0, 10)
+		local px, py = w.Main.Position.X, w.Main.Position.Y
+		local ms = w.Main.Size
+		shadow.Position = UDim2.new(px.Scale, px.Offset, py.Scale, py.Offset + 5)
+		shadow.Size = ms + UDim2.fromOffset(0, 12)
+		shadowSoft.Position = UDim2.new(px.Scale, px.Offset, py.Scale, py.Offset + 16)
+		shadowSoft.Size = ms + UDim2.fromOffset(30, 44)
 	end))
 
 	-- Title bar -------------------------------------------------
 	local bar = create("Frame", {
 		Name = "TitleBar",
-		Size = UDim2.new(1, 0, 0, 40),
+		Size = UDim2.new(1, 0, 0, 44),
 		BackgroundColor3 = Library.Theme.Bg1,
 		BackgroundTransparency = Library.Theme.WindowOpacity,
 		BorderSizePixel = 0,
 		Active = true,
 		Parent = w.Main,
 	})
-	corner(bar, Library.Theme.RadiusLg)
 	reg(bar, "BackgroundColor3", "Bg1")
 	vgradient(
 		bar,
-		Library.Theme.WindowOpacity - 0.02,
-		Library.Theme.WindowOpacity + 0.06,
+		Library.Theme.WindowOpacity - 0.03,
+		Library.Theme.WindowOpacity + 0.08,
 		Color3.fromRGB(255, 255, 255),
-		Color3.fromRGB(220, 225, 240)
+		Color3.fromRGB(214, 220, 238)
 	)
 
-	-- cover the rounded bottom corners so the bar reads as a header
-	create("Frame", {
-		Name = "BarFill",
-		Size = UDim2.new(1, -2, 0, 16),
-		Position = UDim2.new(0, 1, 1, -16),
-		BackgroundColor3 = Library.Theme.Bg1,
-		BackgroundTransparency = Library.Theme.WindowOpacity,
+	-- app mark
+	local mark = create("Frame", {
+		Name = "AppMark",
+		Size = UDim2.fromOffset(24, 24),
+		Position = UDim2.fromOffset(14, 10),
+		BackgroundColor3 = Library.Theme.Primary,
 		BorderSizePixel = 0,
-		ZIndex = 1,
+		ZIndex = 2,
 		Parent = bar,
 	})
-
+	corner(mark, UDim.new(0, 7))
+	reg(mark, "BackgroundColor3", "Primary")
+	vgradient(mark, 0, 0.35, Color3.fromRGB(255, 255, 255), Color3.fromRGB(150, 178, 255))
 	create("TextLabel", {
-		Size = UDim2.new(1, -120, 1, 0),
-		Position = UDim2.fromOffset(16, 0),
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		Text = "L",
+		Font = Library.Theme.FontBold,
+		TextSize = 14,
+		TextColor3 = Color3.fromRGB(255, 255, 255),
+		ZIndex = 2,
+		Parent = mark,
+	})
+
+	local titleLabel = create("TextLabel", {
+		Size = UDim2.new(1, -160, 0, 18),
+		Position = UDim2.fromOffset(48, config.Subtitle and 7 or 13),
 		BackgroundTransparency = 1,
 		Text = config.Title or "Lunar UI",
 		Font = Library.Theme.FontBold,
@@ -361,11 +389,40 @@ function Library.new(config)
 		ZIndex = 2,
 		Parent = bar,
 	})
+	reg(titleLabel, "TextColor3", "Text")
+
+	if config.Subtitle then
+		local sub = create("TextLabel", {
+			Size = UDim2.new(1, -160, 0, 14),
+			Position = UDim2.fromOffset(48, 25),
+			BackgroundTransparency = 1,
+			Text = config.Subtitle,
+			Font = Library.Theme.Font,
+			TextSize = 11,
+			TextColor3 = Library.Theme.TextMuted,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			ZIndex = 2,
+			Parent = bar,
+		})
+		reg(sub, "TextColor3", "TextMuted")
+	end
+
+	-- divider under the bar
+	create("Frame", {
+		Name = "Divider",
+		Size = UDim2.new(1, 0, 0, 1),
+		Position = UDim2.new(0, 0, 1, -1),
+		BackgroundColor3 = Library.Theme.Stroke,
+		BackgroundTransparency = 0.4,
+		BorderSizePixel = 0,
+		ZIndex = 2,
+		Parent = bar,
+	})
 
 	-- Body ------------------------------------------------------
 	local body = create("Frame", {
-		Size = UDim2.new(1, 0, 1, -40),
-		Position = UDim2.fromOffset(0, 40),
+		Size = UDim2.new(1, 0, 1, -44),
+		Position = UDim2.fromOffset(0, 44),
 		BackgroundTransparency = 1,
 		Parent = w.Main,
 	})
@@ -400,43 +457,86 @@ function Library.new(config)
 		Parent = body,
 	})
 
-	-- Window buttons --------------------------------------------
-	local function barButton(text, xOffset, danger)
+	-- Window control buttons (drawn icons) ---------------------
+	local function barButton(xOffset, danger, drawFn)
 		local b = create("TextButton", {
-			Size = UDim2.fromOffset(26, 26),
+			Size = UDim2.fromOffset(28, 28),
 			Position = UDim2.new(1, xOffset, 0.5, 0),
 			AnchorPoint = Vector2.new(0, 0.5),
 			BackgroundColor3 = Library.Theme.Bg3,
-			BackgroundTransparency = 0.35,
-			Text = text,
-			Font = Library.Theme.FontBold,
-			TextSize = 14,
-			TextColor3 = danger and Library.Theme.Danger or Library.Theme.TextSub,
+			BackgroundTransparency = 1,
+			Text = "",
 			AutoButtonColor = false,
-			ZIndex = 2,
+			ZIndex = 3,
 			Parent = bar,
 		})
-		corner(b, Library.Theme.RadiusSm)
+		corner(b, UDim.new(0, 7))
 		local hoverColor = danger and Library.Theme.DangerDim or Library.Theme.Bg4
+		local iconParts = drawFn(b)
+		local function setIconColor(c)
+			for _, p in ipairs(iconParts) do p.BackgroundColor3 = c end
+		end
 		track(b.MouseEnter:Connect(function()
-			tween(b, 0.12, { BackgroundTransparency = 0, TextColor3 = danger and Color3.new(1, 1, 1) or Library.Theme.Text, BackgroundColor3 = hoverColor })
+			tween(b, 0.12, { BackgroundTransparency = 0, BackgroundColor3 = hoverColor })
+			setIconColor(Color3.new(1, 1, 1))
 		end))
 		track(b.MouseLeave:Connect(function()
-			tween(b, 0.12, { BackgroundTransparency = 0.35, BackgroundColor3 = Library.Theme.Bg3, TextColor3 = danger and Library.Theme.Danger or Library.Theme.TextSub })
+			tween(b, 0.12, { BackgroundTransparency = 1, BackgroundColor3 = Library.Theme.Bg3 })
+			setIconColor(danger and Library.Theme.Danger or Library.Theme.TextSub)
 		end))
 		return b
 	end
-	local minBtn   = barButton("-", -68, false)
-	local closeBtn = barButton("x", -38, true)
+
+	local minBtn = barButton(-72, false, function(parent)
+		local dash = create("Frame", {
+			Size = UDim2.fromOffset(11, 2),
+			Position = UDim2.fromScale(0.5, 0.5),
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			BackgroundColor3 = Library.Theme.TextSub,
+			BorderSizePixel = 0,
+			ZIndex = 4,
+			Parent = parent,
+		})
+		corner(dash, UDim.new(1, 0))
+		return { dash }
+	end)
+
+	local closeBtn = barButton(-40, true, function(parent)
+		local a = create("Frame", {
+			Size = UDim2.fromOffset(11, 2),
+			Position = UDim2.fromScale(0.5, 0.5),
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			BackgroundColor3 = Library.Theme.Danger,
+			BorderSizePixel = 0,
+			Rotation = 45,
+			ZIndex = 4,
+			Parent = parent,
+		})
+		local c = create("Frame", {
+			Size = UDim2.fromOffset(11, 2),
+			Position = UDim2.fromScale(0.5, 0.5),
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			BackgroundColor3 = Library.Theme.Danger,
+			BorderSizePixel = 0,
+			Rotation = -45,
+			ZIndex = 4,
+			Parent = parent,
+		})
+		corner(a, UDim.new(1, 0))
+		corner(c, UDim.new(1, 0))
+		return { a, c }
+	end)
 
 	local minimized = false
 	track(minBtn.MouseButton1Click:Connect(function()
 		minimized = not minimized
-		body.Visible = not minimized
-		local goal = minimized
-			and UDim2.new(fullSize.X.Scale, fullSize.X.Offset, 0, 40)
-			or fullSize
-		tween(w.Main, 0.24, { Size = goal })
+		if minimized then
+			body.Visible = false
+			tween(w.Main, 0.26, { Size = UDim2.new(fullSize.X.Scale, fullSize.X.Offset, 0, 44) })
+		else
+			tween(w.Main, 0.26, { Size = fullSize })
+			task.delay(0.12, function() body.Visible = true end)
+		end
 	end))
 	track(closeBtn.MouseButton1Click:Connect(function() w:Unload() end))
 
@@ -461,6 +561,31 @@ function Library.new(config)
 		end
 	end
 
+	-- Snap to nearest screen edge on release --------------------
+	function w:SnapToEdges()
+		local cam = workspace.CurrentCamera
+		local vp = (cam and cam.ViewportSize) or Vector2.new(1920, 1080)
+		local scale = math.max(w.Scale.Scale, 0.01)
+		local absPos = w.Main.AbsolutePosition
+		local absSize = w.Main.AbsoluteSize
+		local margin, threshold = 20, 26
+		local targetX, targetY = absPos.X, absPos.Y
+		local snapped = false
+		if math.abs(absPos.X - margin) < threshold then targetX = margin; snapped = true end
+		if math.abs((absPos.X + absSize.X) - (vp.X - margin)) < threshold then
+			targetX = vp.X - margin - absSize.X; snapped = true
+		end
+		if math.abs(absPos.Y - margin) < threshold then targetY = margin; snapped = true end
+		if math.abs((absPos.Y + absSize.Y) - (vp.Y - margin)) < threshold then
+			targetY = vp.Y - margin - absSize.Y; snapped = true
+		end
+		if snapped then
+			local dx = (targetX - absPos.X) / scale
+			local dy = (targetY - absPos.Y) / scale
+			tween(w.Main, 0.16, { Position = w.Main.Position + UDim2.fromOffset(dx, dy) })
+		end
+	end
+
 	-- Window dragging (via central Drag manager) ----------------
 	track(bar.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
@@ -478,11 +603,109 @@ function Library.new(config)
 					)
 					w:ClampToScreen()
 				end,
+				stop = function() w:SnapToEdges() end,
 			})
 		end
 	end))
 
-	task.defer(function() w:ClampToScreen() end)
+	-- Resize handles (8 directions) -----------------------------
+	local MIN_W, MIN_H = 440, 300
+	local function beginResize(dir)
+		return function(input)
+			if input.UserInputType ~= Enum.UserInputType.MouseButton1
+				and input.UserInputType ~= Enum.UserInputType.Touch then
+				return
+			end
+			local startMouse = UserInputService:GetMouseLocation()
+			local absPos = w.Main.AbsolutePosition
+			local absSize = w.Main.AbsoluteSize
+			local L0, T0 = absPos.X, absPos.Y
+			local R0, B0 = absPos.X + absSize.X, absPos.Y + absSize.Y
+			Drag.begin({
+				move = function(x, y)
+					local ddx = x - startMouse.X
+					local ddy = y - startMouse.Y
+					local cam = workspace.CurrentCamera
+					local vp = (cam and cam.ViewportSize) or Vector2.new(1920, 1080)
+					local sc = math.max(w.Scale.Scale, 0.01)
+					local rootOffX = vp.X * (1 - sc) / 2
+					local rootOffY = vp.Y * (1 - sc) / 2
+
+					local L, T, R, B = L0, T0, R0, B0
+					if dir:find("r") then R = R0 + ddx end
+					if dir:find("l") then L = L0 + ddx end
+					if dir:find("b") then B = B0 + ddy end
+					if dir:find("t") then T = T0 + ddy end
+
+					local minW, minH = MIN_W * sc, MIN_H * sc
+					if dir:find("l") and (R - L) < minW then L = R - minW end
+					if dir:find("r") and (R - L) < minW then R = L + minW end
+					if dir:find("t") and (B - T) < minH then T = B - minH end
+					if dir:find("b") and (B - T) < minH then B = T + minH end
+
+					local newW, newH = R - L, B - T
+					local cx, cy = (L + R) / 2, (T + B) / 2
+					w.Main.Size = UDim2.fromOffset(newW / sc, newH / sc)
+					w.Main.Position = UDim2.fromOffset((cx - rootOffX) / sc, (cy - rootOffY) / sc)
+				end,
+				stop = function() w:ClampToScreen() end,
+			})
+		end
+	end
+
+	local function resizeHandle(dir, size, position)
+		local h = create("TextButton", {
+			Name = "Resize_" .. dir,
+			Size = size,
+			Position = position,
+			BackgroundTransparency = 1,
+			Text = "",
+			AutoButtonColor = false,
+			ZIndex = 10,
+			Parent = w.Main,
+		})
+		track(h.InputBegan:Connect(beginResize(dir)))
+		return h
+	end
+
+	resizeHandle("r",  UDim2.new(0, 6, 1, -28), UDim2.new(1, -6, 0, 14))
+	resizeHandle("l",  UDim2.new(0, 6, 1, -28), UDim2.new(0, 0, 0, 14))
+	resizeHandle("b",  UDim2.new(1, -28, 0, 6), UDim2.new(0, 14, 1, -6))
+	resizeHandle("t",  UDim2.new(1, -28, 0, 6), UDim2.new(0, 14, 0, 0))
+	resizeHandle("rb", UDim2.fromOffset(14, 14), UDim2.new(1, -14, 1, -14))
+	resizeHandle("lb", UDim2.fromOffset(14, 14), UDim2.new(0, 0, 1, -14))
+	resizeHandle("rt", UDim2.fromOffset(14, 14), UDim2.new(1, -14, 0, 0))
+	resizeHandle("lt", UDim2.fromOffset(14, 14), UDim2.new(0, 0, 0, 0))
+
+	-- corner grip (visual)
+	local grip = create("Frame", {
+		Name = "Grip",
+		Size = UDim2.fromOffset(14, 14),
+		Position = UDim2.new(1, -14, 1, -14),
+		BackgroundTransparency = 1,
+		ZIndex = 11,
+		Parent = w.Main,
+	})
+	for i = 1, 2 do
+		local line = create("Frame", {
+			Size = UDim2.fromOffset(9, 1),
+			Position = UDim2.new(1, -1 - i * 3, 1, -1 - i * 3),
+			AnchorPoint = Vector2.new(1, 1),
+			BackgroundColor3 = Library.Theme.TextMuted,
+			BackgroundTransparency = 0.35,
+			BorderSizePixel = 0,
+			Rotation = 45,
+			ZIndex = 11,
+			Parent = grip,
+		})
+		corner(line, UDim.new(1, 0))
+	end
+
+	-- open animation --------------------------------------------
+	task.defer(function()
+		w:ClampToScreen()
+		tween(w.AnimScale, 0.34, { Scale = 1 }, Enum.EasingStyle.Back)
+	end)
 
 	-- Tabs ------------------------------------------------------
 	local tabIndex = 0
@@ -541,15 +764,29 @@ function Library.new(config)
 				tween(other.Button, 0.15, { BackgroundTransparency = 1 })
 				other.Label.TextColor3 = Library.Theme.TextSub
 			end
+			btn.BackgroundColor3 = Library.Theme.Primary
 			page.Visible = true
-			tween(btn, 0.15, { BackgroundTransparency = 0.78 })
+			tween(btn, 0.15, { BackgroundTransparency = 0.8 })
 			label.TextColor3 = Library.Theme.Text
+			page.Position = UDim2.fromOffset(16, 0)
+			tween(page, 0.24, { Position = UDim2.fromOffset(0, 0) })
 		end
 
 		function tab:Section(sectionName)
 			return w:_Section(page, sectionName)
 		end
 
+		track(btn.MouseEnter:Connect(function()
+			if not page.Visible then
+				btn.BackgroundColor3 = Library.Theme.Bg3
+				tween(btn, 0.12, { BackgroundTransparency = 0.85 })
+			end
+		end))
+		track(btn.MouseLeave:Connect(function()
+			if not page.Visible then
+				tween(btn, 0.12, { BackgroundTransparency = 1 })
+			end
+		end))
 		track(btn.MouseButton1Click:Connect(function() tab:Select() end))
 
 		table.insert(w.Tabs, tab)

@@ -816,8 +816,17 @@ function Library.new(config)
 			Color3.fromRGB(190, 196, 220)
 		)
 
+		local collapsed = false
+		local headerBtn = create("TextButton", {
+			Size = UDim2.new(1, 0, 0, 30),
+			BackgroundTransparency = 1,
+			Text = "",
+			AutoButtonColor = false,
+			Active = true,
+			Parent = frame,
+		})
 		local header = create("TextLabel", {
-			Size = UDim2.new(1, -20, 0, 30),
+			Size = UDim2.new(1, -44, 1, 0),
 			Position = UDim2.fromOffset(14, 0),
 			BackgroundTransparency = 1,
 			Text = name,
@@ -825,9 +834,21 @@ function Library.new(config)
 			TextSize = 13,
 			TextColor3 = Library.Theme.Text,
 			TextXAlignment = Enum.TextXAlignment.Left,
-			Parent = frame,
+			Parent = headerBtn,
 		})
 		reg(header, "TextColor3", "Text")
+		local chevron = create("TextLabel", {
+			Size = UDim2.fromOffset(18, 18),
+			Position = UDim2.new(1, -28, 0.5, 0),
+			AnchorPoint = Vector2.new(0, 0.5),
+			BackgroundTransparency = 1,
+			Text = "v",
+			Font = Library.Theme.FontBold,
+			TextSize = 12,
+			TextColor3 = Library.Theme.TextMuted,
+			Parent = headerBtn,
+		})
+		reg(chevron, "TextColor3", "TextMuted")
 
 		local holder = create("Frame", {
 			Size = UDim2.new(1, 0, 0, 0),
@@ -842,6 +863,18 @@ function Library.new(config)
 			Parent = holder,
 		})
 		pad(holder, 8)
+
+		track(headerBtn.MouseButton1Click:Connect(function()
+			collapsed = not collapsed
+			holder.Visible = not collapsed
+			tween(chevron, 0.2, { Rotation = collapsed and -90 or 0 })
+		end))
+		track(headerBtn.MouseEnter:Connect(function()
+			tween(header, 0.12, { TextColor3 = Library.Theme.Primary })
+		end))
+		track(headerBtn.MouseLeave:Connect(function()
+			tween(header, 0.12, { TextColor3 = Library.Theme.Text })
+		end))
 
 		local section = {}
 		function section:Toggle(cfg)          return w:_Toggle(holder, cfg) end
@@ -1049,6 +1082,23 @@ function Library.new(config)
 
 		local knobScale = create("UIScale", { Scale = 1, Parent = knob })
 
+		-- value bubble on hover / drag
+		local bubble = create("TextLabel", {
+			Size = UDim2.fromOffset(46, 18),
+			AnchorPoint = Vector2.new(0.5, 1),
+			Position = UDim2.new(0, 0, 0, 24),
+			BackgroundColor3 = Library.Theme.Primary,
+			Text = "",
+			Font = Library.Theme.FontBold,
+			TextSize = 11,
+			TextColor3 = Color3.fromRGB(255, 255, 255),
+			Visible = false,
+			ZIndex = 6,
+			Parent = row,
+		})
+		corner(bubble, UDim.new(0, 5))
+		reg(bubble, "BackgroundColor3", "Primary")
+
 		local function fmt(v)
 			return string.format("%." .. decimals .. "f", v) .. suffix
 		end
@@ -1057,6 +1107,8 @@ function Library.new(config)
 			fill.Size     = UDim2.new(alpha, 0, 1, 0)
 			knob.Position = UDim2.new(alpha, 0, 0.5, 0)
 			valueLabel.Text = fmt(value)
+			bubble.Text = fmt(value)
+			bubble.Position = UDim2.new(alpha, 0, 0, 27)
 			tween(fill, 0.15, { BackgroundColor3 = Library.Theme.Primary })
 			tween(knob, 0.15, { BackgroundColor3 = Library.Theme.Text })
 		end
@@ -1084,26 +1136,40 @@ function Library.new(config)
 			api:Set(raw)
 		end
 
+		local function mouseOverRow()
+			local m = UserInputService:GetMouseLocation()
+			local p, s = row.AbsolutePosition, row.AbsoluteSize
+			return m.X >= p.X and m.X <= p.X + s.X and m.Y >= p.Y and m.Y <= p.Y + s.Y
+		end
+
 		-- drag via central manager; scrolling disabled while dragging
 		track(row.InputBegan:Connect(function(input)
 			if input.UserInputType == Enum.UserInputType.MouseButton1
 				or input.UserInputType == Enum.UserInputType.Touch then
 				if scrollParent then scrollParent.ScrollingEnabled = false end
 				springGoal(knobScale, 0.2, { Scale = 1.35 })
+				bubble.Visible = true
 				updateFromX(UserInputService:GetMouseLocation().X)
 				Drag.begin({
 					move = function(x) updateFromX(x) end,
 					stop = function()
 						if scrollParent then scrollParent.ScrollingEnabled = true end
 						tween(knobScale, 0.18, { Scale = 1 })
+						bubble.Visible = mouseOverRow()
 					end,
 				})
 			end
 		end))
 
-		track(row.MouseEnter:Connect(function() springGoal(knobScale, 0.2, { Scale = 1.15 }) end))
+		track(row.MouseEnter:Connect(function()
+			springGoal(knobScale, 0.2, { Scale = 1.15 })
+			bubble.Visible = true
+		end))
 		track(row.MouseLeave:Connect(function()
-			if not Drag.isActive() then tween(knobScale, 0.18, { Scale = 1 }) end
+			if not Drag.isActive() then
+				tween(knobScale, 0.18, { Scale = 1 })
+				bubble.Visible = false
+			end
 		end))
 
 		onTheme(render)
@@ -1119,6 +1185,7 @@ function Library.new(config)
 		local options = cfg.Options or {}
 		local selected
 		local optionButtons = {}
+		local searchText = ""
 
 		if multi then
 			selected = {}
@@ -1163,7 +1230,7 @@ function Library.new(config)
 		local arrow = create("TextLabel", {
 			Size = UDim2.fromOffset(20, 20),
 			Position = UDim2.new(1, -26, 0.5, 0),
-			AnchorPoint = Vector2.new(0, 0.5),
+			AnchorPoint = Vector2.new(0.5, 0.5),
 			BackgroundTransparency = 1,
 			Text = "v",
 			Font = Library.Theme.FontBold,
@@ -1190,7 +1257,30 @@ function Library.new(config)
 		create("UIListLayout", { Padding = UDim.new(0, 2), Parent = list })
 		pad(list, 4)
 
+		local searchBox = create("TextBox", {
+			Size = UDim2.new(1, 0, 0, 26),
+			BackgroundColor3 = Library.Theme.Bg2,
+			BackgroundTransparency = 0.1,
+			Text = "",
+			PlaceholderText = "Search...",
+			PlaceholderColor3 = Library.Theme.TextMuted,
+			Font = Library.Theme.Font,
+			TextSize = 12,
+			TextColor3 = Library.Theme.Text,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			ClearTextOnFocus = false,
+			LayoutOrder = -1,
+			Parent = list,
+		})
+		corner(searchBox, UDim.new(0, 4))
+		create("UIPadding", {
+			PaddingLeft = UDim.new(0, 8),
+			PaddingRight = UDim.new(0, 8),
+			Parent = searchBox,
+		})
+
 		local api = {}
+		local openList, closeList
 
 		local function currentDisplay()
 			if multi then
@@ -1213,38 +1303,65 @@ function Library.new(config)
 			optionButtons = {}
 		end
 
+		local function listHeight()
+			return math.min(28 + #optionButtons * 28 + 8, 190)
+		end
+
 		local function buildOptions()
 			clearOptions()
+			local query = string.lower(searchText)
+			local idx = 0
 			for _, opt in ipairs(options) do
-				local ob = create("TextButton", {
-					Size = UDim2.new(1, 0, 0, 26),
-					BackgroundColor3 = Library.Theme.Bg3,
-					BackgroundTransparency = 1,
-					Text = "   " .. tostring(opt),
-					Font = Library.Theme.Font,
-					TextSize = 13,
-					TextColor3 = Library.Theme.Text,
-					TextXAlignment = Enum.TextXAlignment.Left,
-					AutoButtonColor = false,
-					Parent = list,
-				})
-				corner(ob, UDim.new(0, 4))
-				track(ob.MouseEnter:Connect(function() tween(ob, 0.1, { BackgroundTransparency = 0.15 }) end))
-				track(ob.MouseLeave:Connect(function() tween(ob, 0.1, { BackgroundTransparency = 1 }) end))
-				track(ob.MouseButton1Click:Connect(function()
-					if multi then
-						selected[opt] = not selected[opt]
-					else
-						selected.value = opt
-						list.Visible = false
-						list.Size = UDim2.new(1, 0, 0, 0)
-						arrow.Text = "v"
-					end
-					refresh()
-					if cfg.Callback then task.spawn(cfg.Callback, api:Get()) end
-				end))
-				table.insert(optionButtons, ob)
+				local label = tostring(opt)
+				if query == "" or string.find(string.lower(label), query, 1, true) then
+					idx = idx + 1
+					local ob = create("TextButton", {
+						Size = UDim2.new(1, 0, 0, 26),
+						BackgroundColor3 = Library.Theme.Bg3,
+						BackgroundTransparency = 1,
+						Text = "   " .. label,
+						Font = Library.Theme.Font,
+						TextSize = 13,
+						TextColor3 = Library.Theme.Text,
+						TextXAlignment = Enum.TextXAlignment.Left,
+						AutoButtonColor = false,
+						LayoutOrder = idx,
+						Parent = list,
+					})
+					corner(ob, UDim.new(0, 4))
+					track(ob.MouseEnter:Connect(function() tween(ob, 0.1, { BackgroundTransparency = 0.15 }) end))
+					track(ob.MouseLeave:Connect(function() tween(ob, 0.1, { BackgroundTransparency = 1 }) end))
+					track(ob.MouseButton1Click:Connect(function()
+						if multi then
+							selected[opt] = not selected[opt]
+						else
+							selected.value = opt
+							closeList()
+						end
+						refresh()
+						if cfg.Callback then task.spawn(cfg.Callback, api:Get()) end
+					end))
+					table.insert(optionButtons, ob)
+				end
 			end
+		end
+
+		function openList()
+			searchText = ""
+			searchBox.Text = ""
+			buildOptions()
+			list.Visible = true
+			list.Size = UDim2.new(1, 0, 0, 0)
+			tween(list, 0.2, { Size = UDim2.new(1, 0, 0, listHeight()) })
+			tween(arrow, 0.2, { Rotation = 180 })
+		end
+
+		function closeList()
+			tween(list, 0.16, { Size = UDim2.new(1, 0, 0, 0) })
+			tween(arrow, 0.2, { Rotation = 0 })
+			task.delay(0.18, function()
+				if list.Size.Y.Offset <= 1 then list.Visible = false end
+			end)
 		end
 
 		function api:Get()
@@ -1278,20 +1395,28 @@ function Library.new(config)
 			end
 			buildOptions()
 			if list.Visible then
-				list.Size = UDim2.new(1, 0, 0, math.min(#options * 28 + 8, 150))
+				list.Size = UDim2.new(1, 0, 0, listHeight())
 			end
 			refresh()
 		end
+
+		track(searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+			searchText = searchBox.Text
+			buildOptions()
+			if list.Visible then
+				list.Size = UDim2.new(1, 0, 0, listHeight())
+			end
+		end))
 
 		buildOptions()
 		refresh()
 
 		track(header.MouseButton1Click:Connect(function()
-			list.Visible = not list.Visible
-			list.Size = list.Visible
-				and UDim2.new(1, 0, 0, math.min(#options * 28 + 8, 150))
-				or UDim2.new(1, 0, 0, 0)
-			arrow.Text = list.Visible and "^" or "v"
+			if list.Visible then
+				closeList()
+			else
+				openList()
+			end
 		end))
 
 		if cfg.Flag then w.Flags[cfg.Flag] = api:Get(); w.Options[cfg.Flag] = api end
@@ -1362,6 +1487,7 @@ function Library.new(config)
 	-- Keybind ---------------------------------------------------
 	function w:_Keybind(parent, cfg)
 		cfg = cfg or {}
+		local mode = cfg.Mode or "Press"
 		local row = create("Frame", {
 			Size = UDim2.new(1, 0, 0, 28),
 			BackgroundTransparency = 1,
@@ -1394,7 +1520,18 @@ function Library.new(config)
 		corner(btn, Library.Theme.RadiusSm)
 
 		local key = cfg.Default
+		local active = false
 		local api = {}
+
+		local function renderActive()
+			if mode == "Toggle" and active then
+				tween(btn, 0.15, { BackgroundColor3 = Library.Theme.Primary })
+			else
+				tween(btn, 0.15, { BackgroundColor3 = Library.Theme.Bg3 })
+			end
+		end
+		onTheme(renderActive)
+
 		function api:Get() return key end
 		function api:Set(v, silent)
 			key = v
@@ -1419,7 +1556,29 @@ function Library.new(config)
 			end))
 		end))
 
-		if cfg.CallbackOnPress then
+		-- runtime behaviour by mode
+		if mode == "Toggle" then
+			track(UserInputService.InputBegan:Connect(function(input, gpe)
+				if gpe then return end
+				if input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode.Name == key then
+					active = not active
+					renderActive()
+					if cfg.Callback then task.spawn(cfg.Callback, active) end
+				end
+			end))
+		elseif mode == "Hold" then
+			track(UserInputService.InputBegan:Connect(function(input, gpe)
+				if gpe then return end
+				if input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode.Name == key then
+					if cfg.Callback then task.spawn(cfg.Callback, true) end
+				end
+			end))
+			track(UserInputService.InputEnded:Connect(function(input)
+				if input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode.Name == key then
+					if cfg.Callback then task.spawn(cfg.Callback, false) end
+				end
+			end))
+		else
 			track(UserInputService.InputBegan:Connect(function(input, gpe)
 				if gpe then return end
 				if input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode.Name == key then
@@ -1429,6 +1588,7 @@ function Library.new(config)
 		end
 
 		api:Set(key, true)
+		renderActive()
 		if cfg.Flag then w.Options[cfg.Flag] = api end
 		return api
 	end
@@ -1437,6 +1597,7 @@ function Library.new(config)
 	function w:_ColorPicker(parent, cfg)
 		cfg = cfg or {}
 		local default = cfg.Default or Color3.fromRGB(255, 255, 255)
+		local h, s, v = default:ToHSV()
 
 		local container = create("Frame", {
 			Size = UDim2.new(1, 0, 0, 0),
@@ -1444,15 +1605,16 @@ function Library.new(config)
 			BackgroundTransparency = 1,
 			Parent = parent,
 		})
-		create("UIListLayout", { Padding = UDim.new(0, 4), Parent = container })
+		create("UIListLayout", { Padding = UDim.new(0, 6), Parent = container })
 
+		-- header: name + hex + preview
 		local header = create("Frame", {
-			Size = UDim2.new(1, 0, 0, 22),
+			Size = UDim2.new(1, 0, 0, 24),
 			BackgroundTransparency = 1,
 			Parent = container,
 		})
 		local nameLabel = create("TextLabel", {
-			Size = UDim2.new(1, -30, 1, 0),
+			Size = UDim2.new(1, -150, 1, 0),
 			BackgroundTransparency = 1,
 			Text = cfg.Name or "Color",
 			Font = Library.Theme.Font,
@@ -1463,9 +1625,23 @@ function Library.new(config)
 		})
 		reg(nameLabel, "TextColor3", "Text")
 
+		local hexBox = create("TextBox", {
+			Size = UDim2.fromOffset(96, 24),
+			Position = UDim2.new(1, -126, 0, 0),
+			BackgroundColor3 = Library.Theme.Bg3,
+			Text = "",
+			Font = Library.Theme.Font,
+			TextSize = 12,
+			TextColor3 = Library.Theme.Text,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			ClearTextOnFocus = false,
+			Parent = header,
+		})
+		corner(hexBox, Library.Theme.RadiusSm)
+
 		local preview = create("Frame", {
-			Size = UDim2.fromOffset(22, 22),
-			Position = UDim2.new(1, -22, 0, 0),
+			Size = UDim2.fromOffset(24, 24),
+			Position = UDim2.new(1, -24, 0, 0),
 			BackgroundColor3 = default,
 			BorderSizePixel = 0,
 			Parent = header,
@@ -1473,28 +1649,205 @@ function Library.new(config)
 		corner(preview, Library.Theme.RadiusSm)
 		stroke(preview, Library.Theme.Stroke, 1, 0.4)
 
+		-- SV field
+		local field = create("Frame", {
+			Size = UDim2.new(1, 0, 0, 100),
+			BackgroundColor3 = Color3.fromHSV(h, 1, 1),
+			BorderSizePixel = 0,
+			Active = true,
+			Parent = container,
+		})
+		corner(field, Library.Theme.RadiusSm)
+
+		local satOverlay = create("Frame", {
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+			BorderSizePixel = 0,
+			ZIndex = 2,
+			Parent = field,
+		})
+		corner(satOverlay, Library.Theme.RadiusSm)
+		create("UIGradient", {
+			Rotation = 0,
+			Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0),
+				NumberSequenceKeypoint.new(1, 1),
+			}),
+			Parent = satOverlay,
+		})
+
+		local valOverlay = create("Frame", {
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+			BorderSizePixel = 0,
+			ZIndex = 3,
+			Parent = field,
+		})
+		corner(valOverlay, Library.Theme.RadiusSm)
+		create("UIGradient", {
+			Rotation = 90,
+			Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 1),
+				NumberSequenceKeypoint.new(1, 0),
+			}),
+			Parent = valOverlay,
+		})
+
+		local cursor = create("Frame", {
+			Size = UDim2.fromOffset(12, 12),
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(s, 1 - v),
+			BackgroundTransparency = 1,
+			ZIndex = 4,
+			Parent = field,
+		})
+		stroke(cursor, Color3.fromRGB(255, 255, 255), 2, 0.2)
+		corner(cursor, UDim.new(1, 0))
+
+		-- hue bar
+		local hueBar = create("Frame", {
+			Size = UDim2.new(1, 0, 0, 14),
+			BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+			BorderSizePixel = 0,
+			Active = true,
+			Parent = container,
+		})
+		corner(hueBar, UDim.new(1, 0))
+		create("UIGradient", {
+			Rotation = 0,
+			Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0.00, Color3.fromHSV(0.00, 1, 1)),
+				ColorSequenceKeypoint.new(0.17, Color3.fromHSV(0.17, 1, 1)),
+				ColorSequenceKeypoint.new(0.33, Color3.fromHSV(0.33, 1, 1)),
+				ColorSequenceKeypoint.new(0.50, Color3.fromHSV(0.50, 1, 1)),
+				ColorSequenceKeypoint.new(0.67, Color3.fromHSV(0.67, 1, 1)),
+				ColorSequenceKeypoint.new(0.83, Color3.fromHSV(0.83, 1, 1)),
+				ColorSequenceKeypoint.new(1.00, Color3.fromHSV(1.00, 1, 1)),
+			}),
+			Parent = hueBar,
+		})
+		local hueKnob = create("Frame", {
+			Size = UDim2.fromOffset(16, 16),
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.new(h, 0, 0.5, 0),
+			BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+			BorderSizePixel = 0,
+			ZIndex = 2,
+			Parent = hueBar,
+		})
+		corner(hueKnob, UDim.new(1, 0))
+		stroke(hueKnob, Color3.fromRGB(20, 20, 20), 1, 0.5)
+
+		-- presets
+		local presetRow = create("Frame", {
+			Size = UDim2.new(1, 0, 0, 22),
+			BackgroundTransparency = 1,
+			Parent = container,
+		})
+		create("UIListLayout", {
+			FillDirection = Enum.FillDirection.Horizontal,
+			Padding = UDim.new(0, 6),
+			Parent = presetRow,
+		})
+
 		local api = {}
-		local r, g, b
-		r = w:_Slider(container, { Name = "R", Min = 0, Max = 255, Default = math.floor(default.R * 255 + 0.5), Callback = function() api:Changed() end })
-		g = w:_Slider(container, { Name = "G", Min = 0, Max = 255, Default = math.floor(default.G * 255 + 0.5), Callback = function() api:Changed() end })
-		b = w:_Slider(container, { Name = "B", Min = 0, Max = 255, Default = math.floor(default.B * 255 + 0.5), Callback = function() api:Changed() end })
+		local scrollParent = parent:FindFirstAncestorWhichIsA("ScrollingFrame")
 
-		function api:Get()
-			return Color3.fromRGB(r:Get(), g:Get(), b:Get())
+		local function updateVisuals()
+			local color = Color3.fromHSV(h, s, v)
+			field.BackgroundColor3 = Color3.fromHSV(h, 1, 1)
+			cursor.Position = UDim2.fromScale(s, 1 - v)
+			hueKnob.Position = UDim2.new(h, 0, 0.5, 0)
+			preview.BackgroundColor3 = color
+			hexBox.Text = "#" .. color:ToHex()
 		end
-		function api:Changed(silent)
-			preview.BackgroundColor3 = api:Get()
-			if cfg.Flag then w.Flags[cfg.Flag] = api:Get() end
-			if cfg.Callback and not silent then task.spawn(cfg.Callback, api:Get()) end
+
+		local function emit(silent)
+			updateVisuals()
+			local color = Color3.fromHSV(h, s, v)
+			if cfg.Flag then w.Flags[cfg.Flag] = color end
+			if cfg.Callback and not silent then task.spawn(cfg.Callback, color) end
 		end
+
+		track(field.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1
+				or input.UserInputType == Enum.UserInputType.Touch then
+				if scrollParent then scrollParent.ScrollingEnabled = false end
+				local function apply(x, y)
+					local p, sz = field.AbsolutePosition, field.AbsoluteSize
+					s = math.clamp((x - p.X) / math.max(sz.X, 1), 0, 1)
+					v = 1 - math.clamp((y - p.Y) / math.max(sz.Y, 1), 0, 1)
+					emit()
+				end
+				local m = UserInputService:GetMouseLocation()
+				apply(m.X, m.Y)
+				Drag.begin({
+					move = function(x, y) apply(x, y) end,
+					stop = function() if scrollParent then scrollParent.ScrollingEnabled = true end end,
+				})
+			end
+		end))
+
+		track(hueBar.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1
+				or input.UserInputType == Enum.UserInputType.Touch then
+				if scrollParent then scrollParent.ScrollingEnabled = false end
+				local function apply(x)
+					local p, sz = hueBar.AbsolutePosition, hueBar.AbsoluteSize
+					h = math.clamp((x - p.X) / math.max(sz.X, 1), 0, 1)
+					emit()
+				end
+				local m = UserInputService:GetMouseLocation()
+				apply(m.X)
+				Drag.begin({
+					move = function(x) apply(x) end,
+					stop = function() if scrollParent then scrollParent.ScrollingEnabled = true end end,
+				})
+			end
+		end))
+
+		track(hexBox.FocusLost:Connect(function()
+			local text = hexBox.Text:gsub("#", "")
+			local ok, color = pcall(Color3.fromHex, text)
+			if ok then
+				h, s, v = color:ToHSV()
+				emit()
+			else
+				updateVisuals()
+			end
+		end))
+
+		for _, preset in ipairs(cfg.Presets or {
+			Color3.fromRGB(255, 80, 80),
+			Color3.fromRGB(255, 170, 60),
+			Color3.fromRGB(255, 235, 80),
+			Color3.fromRGB(90, 220, 120),
+			Color3.fromRGB(90, 160, 255),
+			Color3.fromRGB(170, 110, 255),
+			Color3.fromRGB(255, 255, 255),
+		}) do
+			local sw = create("TextButton", {
+				Size = UDim2.fromOffset(22, 22),
+				BackgroundColor3 = preset,
+				Text = "",
+				AutoButtonColor = false,
+				Parent = presetRow,
+			})
+			corner(sw, Library.Theme.RadiusSm)
+			stroke(sw, Library.Theme.Stroke, 1, 0.4)
+			track(sw.MouseButton1Click:Connect(function()
+				h, s, v = preset:ToHSV()
+				emit()
+			end))
+		end
+
+		function api:Get() return Color3.fromHSV(h, s, v) end
 		function api:Set(color, silent)
-			r:Set(math.floor(color.R * 255 + 0.5), true)
-			g:Set(math.floor(color.G * 255 + 0.5), true)
-			b:Set(math.floor(color.B * 255 + 0.5), true)
-			api:Changed(silent)
+			h, s, v = color:ToHSV()
+			emit(silent)
 		end
 
-		api:Changed(true)
+		updateVisuals()
 		if cfg.Flag then w.Flags[cfg.Flag] = api:Get(); w.Options[cfg.Flag] = api end
 		return api
 	end

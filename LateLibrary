@@ -375,14 +375,11 @@ function Library.new(config)
 		BackgroundColor3 = Library.Theme.Bg1,
 		BackgroundTransparency = Library.Theme.PanelOpacity,
 		BorderSizePixel = 0,
+		ClipsDescendants = true,
 		Parent = body,
 	})
 	reg(w.Sidebar, "BackgroundColor3", "Bg1")
-	create("UIListLayout", {
-		Padding = UDim.new(0, 4),
-		SortOrder = Enum.SortOrder.LayoutOrder,
-		Parent = w.Sidebar,
-	})
+	-- kein UIListLayout: Tabs werden manuell gestapelt (deterministisch, kein Verrutschen)
 	pad(w.Sidebar, 8)
 	-- right border line — parented to body (NOT the sidebar, sonst frisst
 	-- das UIListLayout die Linie als Vollhöhen-Element und schiebt alle Tabs raus)
@@ -443,6 +440,27 @@ function Library.new(config)
 	end))
 	track(closeBtn.MouseButton1Click:Connect(function() w:Unload() end))
 
+	-- Keep the window fully on screen ---------------------------
+	function w:ClampToScreen(margin)
+		margin = margin or 20
+		local cam = workspace.CurrentCamera
+		local vp = (cam and cam.ViewportSize) or Vector2.new(1920, 1080)
+		local scale = math.max(w.Scale.Scale, 0.01)
+		local absPos = w.Main.AbsolutePosition
+		local absSize = w.Main.AbsoluteSize
+		local minX, minY = margin, margin
+		local maxX = math.max(minX, vp.X - absSize.X - margin)
+		local maxY = math.max(minY, vp.Y - absSize.Y - margin)
+		local dx, dy = 0, 0
+		if absPos.X < minX then dx = minX - absPos.X
+		elseif absPos.X > maxX then dx = maxX - absPos.X end
+		if absPos.Y < minY then dy = minY - absPos.Y
+		elseif absPos.Y > maxY then dy = maxY - absPos.Y end
+		if dx ~= 0 or dy ~= 0 then
+			w.Main.Position = w.Main.Position + UDim2.fromOffset(dx / scale, dy / scale)
+		end
+	end
+
 	-- Window dragging (via central Drag manager) ----------------
 	track(bar.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
@@ -458,16 +476,22 @@ function Library.new(config)
 						startPos.X.Scale, startPos.X.Offset + dx,
 						startPos.Y.Scale, startPos.Y.Offset + dy
 					)
+					w:ClampToScreen()
 				end,
 			})
 		end
 	end))
 
+	task.defer(function() w:ClampToScreen() end)
+
 	-- Tabs ------------------------------------------------------
+	local tabIndex = 0
 	function w:Tab(name)
+		tabIndex = tabIndex + 1
 		local btn = create("TextButton", {
 			Name = (name or "Tab") .. "Btn",
 			Size = UDim2.new(1, 0, 0, 32),
+			Position = UDim2.fromOffset(0, (tabIndex - 1) * 36),
 			BackgroundColor3 = Library.Theme.Primary,
 			BackgroundTransparency = 1,
 			Text = "",
@@ -1590,6 +1614,7 @@ function Library.new(config)
 	-- Scale / Unload --------------------------------------------
 	function w:SetScale(value)
 		w.Scale.Scale = math.clamp(value or 1, 0.6, 1.6)
+		task.defer(function() w:ClampToScreen() end)
 	end
 
 	function w:Unload()

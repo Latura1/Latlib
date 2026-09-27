@@ -2575,45 +2575,41 @@ function Library.new(config)
 		return names
 	end
 
-	function w:SaveConfig(name)
-		name = name or "default"
-		local data = HttpService:JSONEncode(w:GetFlags())
+	local function configPath(name)
+		return Library.ConfigFolder .. "/" .. name .. ".json"
+	end
+
+	local function writeRaw(name, data)
 		if fsAvailable() then
 			if type(isfolder) == "function" and type(makefolder) == "function" then
 				if not isfolder(Library.ConfigFolder) then makefolder(Library.ConfigFolder) end
 			end
-			writefile(Library.ConfigFolder .. "/" .. name .. ".json", data)
+			writefile(configPath(name), data)
 		else
 			w._saved = w._saved or {}
 			w._saved[name] = data
 		end
-		w:Notify({ Title = "Config", Text = "Saved: " .. name })
 	end
 
-	function w:LoadConfig(name)
-		name = name or "default"
-		local data
+	local function readRaw(name)
 		if fsAvailable() then
-			local path = Library.ConfigFolder .. "/" .. name .. ".json"
-			if not isfile(path) then
-				w:Notify({ Title = "Config", Text = "Not found: " .. name, Color = Library.Theme.Danger })
-				return
-			end
-			data = readfile(path)
-		else
-			data = w._saved and w._saved[name]
-			if not data then
-				w:Notify({ Title = "Config", Text = "Not found: " .. name, Color = Library.Theme.Danger })
-				return
-			end
+			local path = configPath(name)
+			if not isfile(path) then return nil end
+			return readfile(path)
 		end
+		return w._saved and w._saved[name]
+	end
 
-		local ok, decoded = pcall(function() return HttpService:JSONDecode(data) end)
-		if not ok or type(decoded) ~= "table" then
-			w:Notify({ Title = "Config", Text = "Parse error", Color = Library.Theme.Danger })
-			return
+	local function deleteRaw(name)
+		if fsAvailable() then
+			local path = configPath(name)
+			if isfile(path) then delfile(path) end
+		elseif w._saved then
+			w._saved[name] = nil
 		end
+	end
 
+	function w:_applyFlags(decoded)
 		for flag, value in pairs(decoded) do
 			if type(value) == "table" and value.__color then
 				value = Color3.fromHex(value.v)
@@ -2624,18 +2620,139 @@ function Library.new(config)
 				pcall(function() opt:Set(value, true) end)
 			end
 		end
-		w:Notify({ Title = "Config", Text = "Loaded: " .. name })
+	end
+
+	function w:SaveConfig(name, silent)
+		name = name or "default"
+		writeRaw(name, HttpService:JSONEncode(w:GetFlags()))
+		if not silent then
+			w:Notify({ Title = "Config", Text = "Saved: " .. name })
+		end
+	end
+
+	function w:LoadConfig(name, silent)
+		name = name or "default"
+		local data = readRaw(name)
+		if not data then
+			w:Notify({ Title = "Config", Text = "Not found: " .. name, Color = Library.Theme.Danger })
+			return false
+		end
+		local ok, decoded = pcall(function() return HttpService:JSONDecode(data) end)
+		if not ok or type(decoded) ~= "table" then
+			w:Notify({ Title = "Config", Text = "Parse error", Color = Library.Theme.Danger })
+			return false
+		end
+		if decoded.flags then decoded = decoded.flags end
+		w:_applyFlags(decoded)
+		if not silent then
+			w:Notify({ Title = "Config", Text = "Loaded: " .. name })
+		end
+		return true
 	end
 
 	function w:DeleteConfig(name)
 		name = name or "default"
-		if fsAvailable() then
-			local path = Library.ConfigFolder .. "/" .. name .. ".json"
-			if isfile(path) then delfile(path) end
-		elseif w._saved then
-			w._saved[name] = nil
-		end
+		deleteRaw(name)
 		w:Notify({ Title = "Config", Text = "Deleted: " .. name })
+	end
+
+	function w:RenameConfig(oldName, newName)
+		if not oldName or not newName or oldName == "" or newName == "" then return false end
+		local data = readRaw(oldName)
+		if not data then
+			w:Notify({ Title = "Config", Text = "Not found: " .. oldName, Color = Library.Theme.Danger })
+			return false
+		end
+		writeRaw(newName, data)
+		deleteRaw(oldName)
+		w:Notify({ Title = "Config", Text = "Renamed: " .. oldName .. " -> " .. newName })
+		return true
+	end
+
+	function w:DuplicateConfig(oldName, newName)
+		if not oldName or not newName or newName == "" then return false end
+		local data = readRaw(oldName)
+		if not data then
+			w:Notify({ Title = "Config", Text = "Not found: " .. oldName, Color = Library.Theme.Danger })
+			return false
+		end
+		writeRaw(newName, data)
+		w:Notify({ Title = "Config", Text = "Duplicated -> " .. newName })
+		return true
+	end
+
+	function w:ExportConfig(name)
+		name = name or "default"
+		local data = readRaw(name)
+		if not data then
+			w:Notify({ Title = "Config", Text = "Not found: " .. name, Color = Library.Theme.Danger })
+			return nil
+		end
+		local ok, decoded = pcall(function() return HttpService:JSONDecode(data) end)
+		local payload = HttpService:JSONEncode({
+			__lunar = 2,
+			name = name,
+			flags = ok and decoded or {},
+		})
+		if type(setclipboard) == "function" then
+			pcall(setclipboard, payload)
+			w:Notify({ Title = "Config", Text = "Export -> Clipboard" })
+		else
+			w:Notify({ Title = "Config", Text = "Clipboard nicht verfuegbar", Color = Library.Theme.Danger })
+		end
+		return payload
+	end
+
+	function w:ImportConfig(data, saveAs)
+		if not data or data == "" then
+			if type(getclipboard) == "function" then
+				local ok, clip = pcall(getclipboard)
+				if ok then data = clip end
+			end
+		end
+		if not data or data == "" then
+			w:Notify({ Title = "Config", Text = "Clipboard leer", Color = Library.Theme.Danger })
+			return false
+		end
+		local ok, decoded = pcall(function() return HttpService:JSONDecode(data) end)
+		if not ok or type(decoded) ~= "table" then
+			w:Notify({ Title = "Config", Text = "Ungueltige Config", Color = Library.Theme.Danger })
+			return false
+		end
+		local flags = decoded.flags or decoded
+		w:_applyFlags(flags)
+		if saveAs and saveAs ~= "" then
+			writeRaw(saveAs, HttpService:JSONEncode(flags))
+		end
+		w:Notify({ Title = "Config", Text = "Imported" .. (saveAs and saveAs ~= "" and (" -> " .. saveAs) or "") })
+		return true
+	end
+
+	function w:SetAutoSave(enabled, name)
+		w._autoSaveName = name or w._autoSaveName or "autosave"
+		if enabled then
+			if w._autoSave then return end
+			w._autoSave = true
+			local last = HttpService:JSONEncode(w:GetFlags())
+			task.spawn(function()
+				while w._autoSave do
+					task.wait(2)
+					local now = HttpService:JSONEncode(w:GetFlags())
+					if now ~= last then
+						last = now
+						writeRaw(w._autoSaveName, now)
+					end
+				end
+			end)
+			w:Notify({ Title = "Config", Text = "Auto-Save an: " .. w._autoSaveName })
+		else
+			w._autoSave = false
+			w:Notify({ Title = "Config", Text = "Auto-Save aus" })
+		end
+	end
+
+	function w:IsAutoSave()
+		return w._autoSave == true
 	end
 
 	-- Config manager (Dropdown + Save/Load/Delete/Refresh) -------
@@ -2647,9 +2764,9 @@ function Library.new(config)
 			Placeholder = (#w:ListConfigs() > 0) and "Select..." or "No configs found",
 		})
 		local nameBox = section:TextBox({
-			Name = "Name",
+			Name = "Name (neu / Ziel)",
 			Default = cfg.DefaultName or "",
-			Placeholder = "new config name...",
+			Placeholder = "config name...",
 		})
 
 		local function refresh()
@@ -2671,7 +2788,7 @@ function Library.new(config)
 			Callback = function()
 				local n = dd:Get()
 				if not n then
-					w:Notify({ Title = "Config", Text = "Keine Config ausgewählt", Color = Library.Theme.Danger })
+					w:Notify({ Title = "Config", Text = "Keine Config ausgewaehlt", Color = Library.Theme.Danger })
 					return
 				end
 				w:LoadConfig(n)
@@ -2684,6 +2801,49 @@ function Library.new(config)
 				if not n then return end
 				w:DeleteConfig(n)
 				refresh()
+			end,
+		})
+		section:Button({
+			Name = "Rename selected -> Name",
+			Callback = function()
+				local old = dd:Get()
+				local new = nameBox:Get()
+				if old and new and new ~= "" then
+					w:RenameConfig(old, new)
+					refresh()
+				end
+			end,
+		})
+		section:Button({
+			Name = "Duplicate selected -> Name",
+			Callback = function()
+				local old = dd:Get()
+				local new = nameBox:Get()
+				if old and new and new ~= "" then
+					w:DuplicateConfig(old, new)
+					refresh()
+				end
+			end,
+		})
+		section:Button({
+			Name = "Export selected (Clipboard)",
+			Callback = function()
+				local n = dd:Get()
+				if n then w:ExportConfig(n) end
+			end,
+		})
+		section:Button({
+			Name = "Import (Clipboard)",
+			Callback = function()
+				w:ImportConfig(nil, nameBox:Get())
+				refresh()
+			end,
+		})
+		section:Toggle({
+			Name = "Auto-Save",
+			Default = w:IsAutoSave(),
+			Callback = function(v)
+				w:SetAutoSave(v, nameBox:Get())
 			end,
 		})
 		section:Button({
@@ -2758,6 +2918,20 @@ function Library.new(config)
 	-- Modal -----------------------------------------------------
 	function w:Modal(cfg)
 		cfg = cfg or {}
+		local WIDTH = cfg.Width or 360
+		local PAD = 16
+		local innerW = WIDTH - PAD * 2
+		local titleH = 22
+		local bodyText = cfg.Text or ""
+		local bodyH = 0
+		if #bodyText > 0 then
+			local bounds = TextService:GetTextSize(bodyText, 13, Library.Theme.Font, Vector2.new(innerW, 100000))
+			bodyH = math.ceil(bounds.Y)
+		end
+		local gap = 12
+		local buttonsH = 30
+		local totalH = PAD + titleH + (bodyH > 0 and (gap + bodyH) or 0) + gap + buttonsH + PAD
+
 		local overlay = create("TextButton", {
 			Name = "ModalOverlay",
 			Size = UDim2.fromScale(1, 1),
@@ -2770,8 +2944,7 @@ function Library.new(config)
 		})
 		local box = create("Frame", {
 			Name = "ModalBox",
-			Size = UDim2.fromOffset(cfg.Width or 360, 0),
-			AutomaticSize = Enum.AutomaticSize.Y,
+			Size = UDim2.fromOffset(WIDTH, totalH),
 			Position = UDim2.fromScale(0.5, 0.5),
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			BackgroundColor3 = Library.Theme.Bg1,
@@ -2782,46 +2955,54 @@ function Library.new(config)
 		})
 		corner(box, Library.Theme.Radius)
 		stroke(box, Library.Theme.Stroke, 1, 0.2)
-		pad(box, 16)
-		create("UIListLayout", { Padding = UDim.new(0, 10), Parent = box })
 
 		local title = create("TextLabel", {
-			Size = UDim2.new(1, 0, 0, 22),
+			Size = UDim2.new(1, -PAD * 2, 0, titleH),
+			Position = UDim2.fromOffset(PAD, PAD),
 			BackgroundTransparency = 1,
 			Text = cfg.Title or "Dialog",
 			Font = Library.Theme.FontBold,
 			TextSize = 16,
 			TextColor3 = Library.Theme.Text,
 			TextXAlignment = Enum.TextXAlignment.Left,
+			ZIndex = 452,
 			Parent = box,
 		})
 		reg(title, "TextColor3", "Text")
-		if cfg.Text then
+
+		if bodyH > 0 then
 			local body = create("TextLabel", {
-				Size = UDim2.new(1, 0, 0, 0),
-				AutomaticSize = Enum.AutomaticSize.Y,
+				Size = UDim2.fromOffset(innerW, bodyH),
+				Position = UDim2.fromOffset(PAD, PAD + titleH + gap),
 				BackgroundTransparency = 1,
-				Text = cfg.Text,
+				Text = bodyText,
 				Font = Library.Theme.Font,
 				TextSize = 13,
 				TextColor3 = Library.Theme.TextSub,
 				TextXAlignment = Enum.TextXAlignment.Left,
 				TextYAlignment = Enum.TextYAlignment.Top,
 				TextWrapped = true,
+				ZIndex = 452,
 				Parent = box,
 			})
 			reg(body, "TextColor3", "TextSub")
 		end
 
 		local row = create("Frame", {
-			Size = UDim2.new(1, 0, 0, 30),
+			Name = "Buttons",
+			Size = UDim2.new(1, -PAD * 2, 0, buttonsH),
+			Position = UDim2.new(0, PAD, 1, -PAD),
+			AnchorPoint = Vector2.new(0, 1),
 			BackgroundTransparency = 1,
+			ZIndex = 452,
 			Parent = box,
 		})
 		create("UIListLayout", {
 			FillDirection = Enum.FillDirection.Horizontal,
 			HorizontalAlignment = Enum.HorizontalAlignment.Right,
+			VerticalAlignment = Enum.VerticalAlignment.Center,
 			Padding = UDim.new(0, 8),
+			SortOrder = Enum.SortOrder.LayoutOrder,
 			Parent = row,
 		})
 
@@ -2829,7 +3010,9 @@ function Library.new(config)
 			overlay:Destroy()
 		end
 
+		local idx = 0
 		for _, btnCfg in ipairs(cfg.Buttons or { { Name = "OK" } }) do
+			idx = idx + 1
 			local b = create("TextButton", {
 				Size = UDim2.fromOffset(btnCfg.Width or 90, 30),
 				BackgroundColor3 = btnCfg.Color or Library.Theme.Bg3,
@@ -2839,6 +3022,8 @@ function Library.new(config)
 				TextSize = 13,
 				TextColor3 = btnCfg.TextColor or Library.Theme.Text,
 				AutoButtonColor = false,
+				LayoutOrder = idx,
+				ZIndex = 453,
 				Parent = row,
 			})
 			corner(b, Library.Theme.RadiusSm)
@@ -2952,6 +3137,7 @@ function Library.new(config)
 	end
 
 	function w:Unload()
+		w._autoSave = false
 		for _, c in ipairs(connections) do
 			pcall(function() c:Disconnect() end)
 		end

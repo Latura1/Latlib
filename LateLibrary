@@ -21,6 +21,19 @@ local GuiService       = game:GetService("GuiService")
 local Library = {}
 
 ------------------------------------------------------------
+-- Branding
+------------------------------------------------------------
+Library.Name    = "LunarUI"
+Library.Author  = "Latura"
+Library.Discord = "l4tura"
+Library.Version = "1.0.0"
+
+print(string.format(
+	"[%s] GUI Library by %s  ·  discord: %s  ·  v%s",
+	Library.Name, Library.Author, Library.Discord, Library.Version
+))
+
+------------------------------------------------------------
 -- Design Tokens
 ------------------------------------------------------------
 Library.Theme = {
@@ -624,12 +637,65 @@ function Library.new(config)
 	})
 
 	-- Body ------------------------------------------------------
+	local FOOTER_H = (config.Footer ~= false) and 22 or 0
 	local body = create("Frame", {
-		Size = UDim2.new(1, 0, 1, -44),
+		Size = UDim2.new(1, 0, 1, -44 - FOOTER_H),
 		Position = UDim2.fromOffset(0, 44),
 		BackgroundTransparency = 1,
 		Parent = w.Main,
 	})
+
+	-- Branding footer (always on unless config.Footer = false) ---
+	if config.Footer ~= false then
+		local footer = create("TextButton", {
+			Name = "Footer",
+			Size = UDim2.new(1, 0, 0, FOOTER_H),
+			Position = UDim2.new(0, 0, 1, -FOOTER_H),
+			BackgroundColor3 = Library.Theme.Bg1,
+			BackgroundTransparency = Library.Theme.WindowOpacity,
+			Text = "",
+			AutoButtonColor = false,
+			ZIndex = 2,
+			Parent = w.Main,
+		})
+		reg(footer, "BackgroundColor3", "Bg1")
+		glassGradient(footer, "WindowOpacity", Color3.fromRGB(255, 255, 255), Color3.fromRGB(214, 220, 238))
+		create("Frame", {
+			Name = "TopLine",
+			Size = UDim2.new(1, 0, 0, 1),
+			BackgroundColor3 = Library.Theme.Stroke,
+			BackgroundTransparency = 0.5,
+			BorderSizePixel = 0,
+			ZIndex = 3,
+			Parent = footer,
+		})
+		local credit = create("TextLabel", {
+			Size = UDim2.new(1, 0, 1, 0),
+			BackgroundTransparency = 1,
+			Text = Library.Name .. "  ·  by " .. Library.Author .. "  ·  discord: " .. Library.Discord,
+			Font = Library.Theme.Font,
+			TextSize = 11,
+			TextColor3 = Library.Theme.TextMuted,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			ZIndex = 3,
+			Parent = footer,
+		})
+		reg(credit, "TextColor3", "TextMuted")
+		track(footer.MouseEnter:Connect(function()
+			tween(credit, 0.15, { TextColor3 = Library.Theme.Primary })
+		end))
+		track(footer.MouseLeave:Connect(function()
+			tween(credit, 0.15, { TextColor3 = Library.Theme.TextMuted })
+		end))
+		track(footer.MouseButton1Click:Connect(function()
+			if type(setclipboard) == "function" then
+				pcall(setclipboard, Library.Discord)
+				w:Notify({ Title = "Credits", Text = "Discord kopiert: " .. Library.Discord })
+			else
+				w:Notify({ Title = "Credits", Text = "discord: " .. Library.Discord })
+			end
+		end))
+	end
 
 	w.Sidebar = create("Frame", {
 		Size = UDim2.new(0, 140, 1, 0),
@@ -2852,6 +2918,32 @@ function Library.new(config)
 		})
 
 		return { Dropdown = dd, NameBox = nameBox, Refresh = refresh }
+	end
+
+	-- Credits tab ----------------------------------------------
+	function w:CreditsTab(cfg)
+		cfg = cfg or {}
+		local tab = w:Tab(cfg.Name or "Credits")
+		local sec = tab:Section("Credits")
+
+		sec:Label({ Text = Library.Name .. " — GUI Library" })
+		sec:Paragraph({
+			Text = "by " .. Library.Author
+				.. "\nDiscord: " .. Library.Discord
+				.. "\nVersion: " .. Library.Version,
+		})
+		sec:Button({
+			Name = "Discord kopieren (" .. Library.Discord .. ")",
+			Callback = function()
+				if type(setclipboard) == "function" then
+					pcall(setclipboard, Library.Discord)
+					w:Notify({ Title = "Credits", Text = "Discord kopiert: " .. Library.Discord })
+				else
+					w:Notify({ Title = "Credits", Text = "discord: " .. Library.Discord })
+				end
+			end,
+		})
+		return tab
 	end
 
 	-- Settings tab ---------------------------------------------

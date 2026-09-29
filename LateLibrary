@@ -542,29 +542,34 @@ function Library.new(config)
 	reg(bar, "BackgroundColor3", "Bg1")
 	glassGradient(bar, "WindowOpacity", Color3.fromRGB(255, 255, 255), Color3.fromRGB(214, 220, 238))
 
-	-- app mark
-	local mark = create("Frame", {
+	-- app mark (clickable → credits dialog)
+	local mark = create("TextButton", {
 		Name = "AppMark",
-		Size = UDim2.fromOffset(24, 24),
-		Position = UDim2.fromOffset(14, 10),
+		Size = UDim2.fromOffset(26, 26),
+		Position = UDim2.fromOffset(13, 9),
 		BackgroundColor3 = Library.Theme.Primary,
 		BorderSizePixel = 0,
-		ZIndex = 2,
-		Parent = bar,
-	})
-	corner(mark, UDim.new(0, 7))
-	reg(mark, "BackgroundColor3", "Primary")
-	vgradient(mark, 0, 0.35, Color3.fromRGB(255, 255, 255), Color3.fromRGB(150, 178, 255))
-	create("TextLabel", {
-		Size = UDim2.fromScale(1, 1),
-		BackgroundTransparency = 1,
 		Text = "L",
 		Font = Library.Theme.FontBold,
-		TextSize = 14,
+		TextSize = 15,
 		TextColor3 = Color3.fromRGB(255, 255, 255),
-		ZIndex = 2,
-		Parent = mark,
+		AutoButtonColor = false,
+		ZIndex = 3,
+		Parent = bar,
 	})
+	corner(mark, UDim.new(0, 8))
+	reg(mark, "BackgroundColor3", "Primary")
+	vgradient(mark, 0, 0.35, Color3.fromRGB(255, 255, 255), Color3.fromRGB(150, 178, 255))
+	local markScale = create("UIScale", { Scale = 1, Parent = mark })
+	track(mark.MouseEnter:Connect(function()
+		springGoal(markScale, 0.22, { Scale = 1.12 })
+	end))
+	track(mark.MouseLeave:Connect(function()
+		tween(markScale, 0.18, { Scale = 1 })
+	end))
+	track(mark.MouseButton1Click:Connect(function()
+		w:_InfoDialog()
+	end))
 
 	local titleLabel = create("TextLabel", {
 		Size = UDim2.new(1, -160, 0, 18),
@@ -643,31 +648,6 @@ function Library.new(config)
 		BackgroundTransparency = 1,
 		Parent = w.Main,
 	})
-
-	-- Info button (always present, opens the credits dialog) ----
-	local infoBtn = create("TextButton", {
-		Name = "InfoButton",
-		Size = UDim2.fromOffset(22, 22),
-		Position = UDim2.new(1, -30, 1, -30),
-		BackgroundColor3 = Library.Theme.Bg3,
-		BackgroundTransparency = 0.35,
-		Text = "!",
-		Font = Library.Theme.FontBold,
-		TextSize = 13,
-		TextColor3 = Library.Theme.TextMuted,
-		AutoButtonColor = false,
-		ZIndex = 8,
-		Parent = w.Main,
-	})
-	corner(infoBtn, UDim.new(1, 0))
-	reg(infoBtn, "BackgroundColor3", "Bg3")
-	track(infoBtn.MouseEnter:Connect(function()
-		tween(infoBtn, 0.15, { BackgroundTransparency = 0.05, TextColor3 = Library.Theme.Primary })
-	end))
-	track(infoBtn.MouseLeave:Connect(function()
-		tween(infoBtn, 0.15, { BackgroundTransparency = 0.35, TextColor3 = Library.Theme.TextMuted })
-	end))
-	track(infoBtn.MouseButton1Click:Connect(function() w:_InfoDialog() end))
 
 	w.Sidebar = create("Frame", {
 		Size = UDim2.new(0, 140, 1, 0),
@@ -2963,11 +2943,15 @@ function Library.new(config)
 	-- Info / credits dialog (centered inside the window) --------
 	function w:_InfoDialog()
 		if w._infoDialog and w._infoDialog.Parent then return end
+
+		local WIDTH, PAD = 320, 20
+		local H = 285
+
 		local overlay = create("TextButton", {
 			Name = "InfoOverlay",
 			Size = UDim2.fromScale(1, 1),
 			BackgroundColor3 = Color3.fromRGB(0, 0, 0),
-			BackgroundTransparency = 0.45,
+			BackgroundTransparency = 0.68,
 			Text = "",
 			AutoButtonColor = false,
 			ZIndex = 60,
@@ -2975,36 +2959,82 @@ function Library.new(config)
 		})
 		w._infoDialog = overlay
 
-		local box = create("Frame", {
-			Name = "InfoBox",
-			Size = UDim2.fromOffset(290, 0),
-			AutomaticSize = Enum.AutomaticSize.Y,
+		local shadow = create("Frame", {
+			Size = UDim2.fromOffset(WIDTH + 12, H + 14),
+			Position = UDim2.fromScale(0.5, 0.5),
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+			BackgroundTransparency = 0.75,
+			BorderSizePixel = 0,
+			ZIndex = 60,
+			Parent = overlay,
+		})
+		corner(shadow, UDim.new(0, 22))
+
+		local card = create("CanvasGroup", {
+			Name = "InfoCard",
+			Size = UDim2.fromOffset(WIDTH, H),
 			Position = UDim2.fromScale(0.5, 0.5),
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			BackgroundColor3 = Library.Theme.Bg1,
+			BackgroundTransparency = Library.Theme.PanelOpacity,
 			BorderSizePixel = 0,
+			GroupTransparency = 1,
 			Active = true,
 			ZIndex = 61,
 			Parent = overlay,
 		})
-		corner(box, Library.Theme.Radius)
-		stroke(box, Library.Theme.Stroke, 1, 0.2)
-		pad(box, 18)
-		create("UIListLayout", {
-			Padding = UDim.new(0, 8),
-			SortOrder = Enum.SortOrder.LayoutOrder,
-			Parent = box,
-		})
+		corner(card, UDim.new(0, 16))
+		stroke(card, Library.Theme.Stroke, 1, 0.15)
+		glassGradient(card, "PanelOpacity", Color3.fromRGB(255, 255, 255), Color3.fromRGB(200, 206, 230))
+		local cardScale = create("UIScale", { Scale = 0.92, Parent = card })
 
+		local function infoRow(y, label, value)
+			local row = create("Frame", {
+				Size = UDim2.new(1, -PAD * 2, 0, 24),
+				Position = UDim2.fromOffset(PAD, y),
+				BackgroundTransparency = 1,
+				ZIndex = 62,
+				Parent = card,
+			})
+			local l = create("TextLabel", {
+				Size = UDim2.new(0.5, 0, 1, 0),
+				BackgroundTransparency = 1,
+				Text = label,
+				Font = Library.Theme.Font,
+				TextSize = 13,
+				TextColor3 = Library.Theme.TextMuted,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				ZIndex = 62,
+				Parent = row,
+			})
+			reg(l, "TextColor3", "TextMuted")
+			local v = create("TextLabel", {
+				Size = UDim2.new(0.5, 0, 1, 0),
+				Position = UDim2.fromScale(0.5, 0),
+				BackgroundTransparency = 1,
+				Text = value,
+				Font = Library.Theme.FontBold,
+				TextSize = 13,
+				TextColor3 = Library.Theme.Text,
+				TextXAlignment = Enum.TextXAlignment.Right,
+				ZIndex = 62,
+				Parent = row,
+			})
+			reg(v, "TextColor3", "Text")
+		end
+
+		-- big app mark
 		local mark = create("Frame", {
-			Size = UDim2.fromOffset(36, 36),
-			LayoutOrder = 1,
+			Size = UDim2.fromOffset(48, 48),
+			Position = UDim2.new(0.5, 0, 0, PAD),
+			AnchorPoint = Vector2.new(0.5, 0),
 			BackgroundColor3 = Library.Theme.Primary,
 			BorderSizePixel = 0,
 			ZIndex = 62,
-			Parent = box,
+			Parent = card,
 		})
-		corner(mark, UDim.new(0, 11))
+		corner(mark, UDim.new(0, 14))
 		reg(mark, "BackgroundColor3", "Primary")
 		vgradient(mark, 0, 0.35, Color3.fromRGB(255, 255, 255), Color3.fromRGB(150, 178, 255))
 		create("TextLabel", {
@@ -3012,69 +3042,89 @@ function Library.new(config)
 			BackgroundTransparency = 1,
 			Text = "L",
 			Font = Library.Theme.FontBold,
-			TextSize = 19,
+			TextSize = 23,
 			TextColor3 = Color3.fromRGB(255, 255, 255),
 			ZIndex = 63,
 			Parent = mark,
 		})
 
 		local title = create("TextLabel", {
-			Size = UDim2.new(1, 0, 0, 22),
-			LayoutOrder = 2,
+			Size = UDim2.new(1, -PAD * 2, 0, 26),
+			Position = UDim2.fromOffset(PAD, PAD + 48 + 10),
 			BackgroundTransparency = 1,
 			Text = Library.Name,
 			Font = Library.Theme.FontBold,
-			TextSize = 18,
+			TextSize = 19,
 			TextColor3 = Library.Theme.Text,
-			TextXAlignment = Enum.TextXAlignment.Left,
+			TextXAlignment = Enum.TextXAlignment.Center,
 			ZIndex = 62,
-			Parent = box,
+			Parent = card,
 		})
 		reg(title, "TextColor3", "Text")
 
-		local info = create("TextLabel", {
-			Size = UDim2.new(1, 0, 0, 0),
-			AutomaticSize = Enum.AutomaticSize.Y,
-			LayoutOrder = 3,
-			BackgroundTransparency = 1,
-			Text = "GUI Library by " .. Library.Author
-				.. "\nDiscord: " .. Library.Discord
-				.. "\nVersion: " .. Library.Version,
-			Font = Library.Theme.Font,
-			TextSize = 13,
-			TextColor3 = Library.Theme.TextSub,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			TextYAlignment = Enum.TextYAlignment.Top,
-			TextWrapped = true,
+		-- version pill
+		local pill = create("Frame", {
+			Size = UDim2.fromOffset(70, 22),
+			Position = UDim2.new(0.5, 0, 0, PAD + 48 + 10 + 26 + 4),
+			AnchorPoint = Vector2.new(0.5, 0),
+			BackgroundColor3 = Library.Theme.Bg3,
+			BorderSizePixel = 0,
 			ZIndex = 62,
-			Parent = box,
+			Parent = card,
 		})
-		reg(info, "TextColor3", "TextSub")
+		corner(pill, UDim.new(1, 0))
+		reg(pill, "BackgroundColor3", "Bg3")
+		local pillText = create("TextLabel", {
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			Text = "v" .. Library.Version,
+			Font = Library.Theme.Font,
+			TextSize = 11,
+			TextColor3 = Library.Theme.TextSub,
+			ZIndex = 63,
+			Parent = pill,
+		})
+		reg(pillText, "TextColor3", "TextSub")
 
+		-- divider
+		local dividerY = PAD + 48 + 10 + 26 + 4 + 22 + 14
+		create("Frame", {
+			Size = UDim2.new(1, -PAD * 2, 0, 1),
+			Position = UDim2.fromOffset(PAD, dividerY),
+			BackgroundColor3 = Library.Theme.Stroke,
+			BackgroundTransparency = 0.35,
+			BorderSizePixel = 0,
+			ZIndex = 62,
+			Parent = card,
+		})
+
+		infoRow(dividerY + 1 + 12, "Author", Library.Author)
+		infoRow(dividerY + 1 + 12 + 24 + 8, "Discord", Library.Discord)
+
+		-- buttons
+		local btnY = dividerY + 1 + 12 + 24 + 8 + 24 + 18
 		local row = create("Frame", {
-			Size = UDim2.new(1, 0, 0, 30),
-			LayoutOrder = 4,
+			Size = UDim2.new(1, -PAD * 2, 0, 34),
+			Position = UDim2.fromOffset(PAD, btnY),
 			BackgroundTransparency = 1,
 			ZIndex = 62,
-			Parent = box,
+			Parent = card,
 		})
 		create("UIListLayout", {
 			FillDirection = Enum.FillDirection.Horizontal,
-			HorizontalAlignment = Enum.HorizontalAlignment.Right,
-			VerticalAlignment = Enum.VerticalAlignment.Center,
 			Padding = UDim.new(0, 8),
 			SortOrder = Enum.SortOrder.LayoutOrder,
 			Parent = row,
 		})
 
 		local copyBtn = create("TextButton", {
-			Size = UDim2.fromOffset(130, 30),
-			BackgroundColor3 = Library.Theme.Bg3,
+			Size = UDim2.new(0.5, -4, 1, 0),
+			BackgroundColor3 = Library.Theme.Primary,
 			BackgroundTransparency = 0.05,
 			Text = "Copy Discord",
 			Font = Library.Theme.Font,
 			TextSize = 13,
-			TextColor3 = Library.Theme.Text,
+			TextColor3 = Color3.fromRGB(255, 255, 255),
 			AutoButtonColor = false,
 			LayoutOrder = 1,
 			ZIndex = 63,
@@ -3083,13 +3133,13 @@ function Library.new(config)
 		corner(copyBtn, Library.Theme.RadiusSm)
 
 		local closeBtn = create("TextButton", {
-			Size = UDim2.fromOffset(80, 30),
-			BackgroundColor3 = Library.Theme.Primary,
+			Size = UDim2.new(0.5, -4, 1, 0),
+			BackgroundColor3 = Library.Theme.Bg3,
 			BackgroundTransparency = 0.05,
 			Text = "Close",
 			Font = Library.Theme.Font,
 			TextSize = 13,
-			TextColor3 = Color3.fromRGB(255, 255, 255),
+			TextColor3 = Library.Theme.Text,
 			AutoButtonColor = false,
 			LayoutOrder = 2,
 			ZIndex = 63,
@@ -3097,9 +3147,20 @@ function Library.new(config)
 		})
 		corner(closeBtn, Library.Theme.RadiusSm)
 
+		-- animate in
+		tween(card, 0.22, { GroupTransparency = 0 })
+		springGoal(cardScale, 0.28, { Scale = 1 })
+		tween(overlay, 0.22, { BackgroundTransparency = 0.55 })
+
+		local closing = false
 		local function close()
-			overlay:Destroy()
+			if closing then return end
+			closing = true
 			w._infoDialog = nil
+			tween(cardScale, 0.16, { Scale = 0.94 })
+			local t = tween(card, 0.16, { GroupTransparency = 1 })
+			tween(overlay, 0.16, { BackgroundTransparency = 1 })
+			t.Completed:Connect(function() overlay:Destroy() end)
 		end
 		track(overlay.MouseButton1Click:Connect(close))
 		track(closeBtn.MouseButton1Click:Connect(close))

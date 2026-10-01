@@ -546,7 +546,8 @@ function Library.new(config)
 	local mark = create("TextButton", {
 		Name = "AppMark",
 		Size = UDim2.fromOffset(26, 26),
-		Position = UDim2.fromOffset(13, 9),
+		Position = UDim2.fromOffset(26, 22),
+		AnchorPoint = Vector2.new(0.5, 0.5),
 		BackgroundColor3 = Library.Theme.Primary,
 		BorderSizePixel = 0,
 		Text = "L",
